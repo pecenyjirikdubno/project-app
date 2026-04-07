@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Uživatelé</title>
+</head>
+<body>
+
+<h2>Správa uživatelů</h2>
+
+<h3>Přidat uživatele</h3>
+<form method="POST" action="{{ url_for('add_user') }}">
+    <input type="text" name="username" placeholder="Uživatelské jméno" required>
+    <input type="password" name="password" placeholder="Heslo" required>
+
+    <select name="role">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+    </select>
+
+    <button type="submit">Vytvořit</button>
+</form>
+
+<hr>
+
+<h3>Seznam uživatelů</h3>
+
+<table border="1">
+<tr>
+    <th>ID</th>
+    <th>Username</th>
+    <th>Role</th>
+    <th>Akce</th>
+</tr>
+
+{% for u in users %}
+<tr>
+    <td>{{ u.id }}</td>
+    <td>{{ u.username }}</td>
+    <td>{{ u.role }}</td>
+    <td>
+        {% if u.username != 'admin' %}
+        <a href="{{ url_for('delete_user', id=u.id) }}">Smazat</a>
+        {% endif %}
+    </td>
+</tr>
+{% endfor %}
+
+</table>
+
+<br>
+<a href="{{ url_for('dashboard') }}">⬅ Zpět</a>
+
+</body>
+</html>
