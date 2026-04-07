@@ -1,275 +1,163 @@
-from flask import Flask, render_template, request, redirect, url_for, send_file
+from flask import Flask, render_template, request, redirect, send_file
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, login_user, login_required, logout_user, UserMixin, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
+import pandas as pd
 import os
-import io
-from openpyxl import Workbook
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret123'
+app.config['SECRET_KEY'] = 'secret-key'
 
-# DB (Railway / SQLite fallback)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///database.db")
+# ✅ DATABASE (Railway PostgreSQL)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:KuVvnYasIsLZyRMhsmxuBLdmVDabGrAV@postgres.railway.internal:5432/railway"
+)
+
+# fix postgres://
+if app.config['SQLALCHEMY_DATABASE_URI'].startswith("postgres://"):
+    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace("postgres://", "postgresql://")
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = "login"
-
-# -----------------------
+# =====================
 # MODELY
-# -----------------------
+# =====================
 
-class User(db.Model, UserMixin):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(200))
-    role = db.Column(db.String(10))
-
-
-class Zakazka(db.Model):
+class Job(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200))
     closed = db.Column(db.Boolean, default=False)
 
-
-class Zaznam(db.Model):
+class JobRow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    zakazka_id = db.Column(db.Integer, db.ForeignKey('zakazka.id'))
-    datum = db.Column(db.String(50))
-    material_kod = db.Column(db.String(100))
-    doklad = db.Column(db.String(100))
-    dodavatel = db.Column(db.String(100))
-    mnozstvi = db.Column(db.String(50))
-    popis = db.Column(db.String(200))
-    hodiny = db.Column(db.String(50))
-    km = db.Column(db.String(50))
-    cas_cesta = db.Column(db.String(50))
+    job_id = db.Column(db.Integer, db.ForeignKey('job.id'))
 
+    material_name = db.Column(db.String(200))
+    material_cost = db.Column(db.Float)
 
-# -----------------------
-# LOGIN
-# -----------------------
+    transport_cost = db.Column(db.Float)
 
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+    work_hours = db.Column(db.Float)
+    work_rate = db.Column(db.Float)
 
-
-# -----------------------
+# =====================
 # INIT DB
-# -----------------------
+# =====================
 
 with app.app_context():
     db.create_all()
 
-    if not User.query.filter_by(username="admin").first():
-        admin = User(
-            username="admin",
-            password=generate_password_hash("admin"),
-            role="admin"
-        )
-        db.session.add(admin)
-        db.session.commit()
+# =====================
+# ROUTES
+# =====================
 
+@app.route('/')
+def index():
+    jobs = Job.query.all()
 
-# -----------------------
-# ROUTY
-# -----------------------
+    # přidáme rows ke každé zakázce
+    for job in jobs:
+        job.rows = JobRow.query.filter_by(job_id=job.id).all()
 
-@app.route("/", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        user = User.query.filter_by(username=request.form["username"]).first()
-        if user and check_password_hash(user.password, request.form["password"]):
-            login_user(user)
-            return redirect(url_for("dashboard"))
-    return render_template("login.html")
+    return render_template('dashboard.html', jobs=jobs)
 
+# =====================
+# CREATE JOB
+# =====================
 
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    zakazky = Zakazka.query.all()
-    return render_template("dashboard.html", zakazky=zakazky)
+@app.route('/create_job', methods=['POST'])
+def create_job():
+    name = request.form.get('name')
 
-
-@app.route("/create", methods=["POST"])
-@login_required
-def create():
-    name = request.form["name"]
-    db.session.add(Zakazka(name=name))
-    db.session.commit()
-    return redirect(url_for("dashboard"))
-
-
-@app.route("/zakazka/<int:id>")
-@login_required
-def zakazka(id):
-    zakazka = Zakazka.query.get_or_404(id)
-    zaznamy = Zaznam.query.filter_by(zakazka_id=id).all()
-    return render_template("zakazka.html", zakazka=zakazka, zaznamy=zaznamy)
-
-
-@app.route("/add/<int:id>", methods=["POST"])
-@login_required
-def add(id):
-    if Zakazka.query.get(id).closed:
-        return redirect(url_for("zakazka", id=id))
-
-    z = Zaznam(
-        zakazka_id=id,
-        datum=request.form.get("datum"),
-        material_kod=request.form.get("material_kod"),
-        doklad=request.form.get("doklad"),
-        dodavatel=request.form.get("dodavatel"),
-        mnozstvi=request.form.get("mnozstvi"),
-        popis=request.form.get("popis"),
-        hodiny=request.form.get("hodiny"),
-        km=request.form.get("km"),
-        cas_cesta=request.form.get("cas_cesta")
-    )
-    db.session.add(z)
+    new_job = Job(name=name)
+    db.session.add(new_job)
     db.session.commit()
 
-    return redirect(url_for("zakazka", id=id))
+    return redirect('/')
 
+# =====================
+# ADD ROW
+# =====================
 
-@app.route("/delete/<int:id>")
-@login_required
-def delete(id):
-    z = Zaznam.query.get_or_404(id)
-    if current_user.role == "admin":
-        db.session.delete(z)
-        db.session.commit()
-    return redirect(request.referrer)
-
-
-@app.route("/close/<int:id>")
-@login_required
-def close(id):
-    zakazka = Zakazka.query.get_or_404(id)
-    if current_user.role == "admin":
-        zakazka.closed = True
-        db.session.commit()
-    return redirect(url_for("zakazka", id=id))
-
-
-# -----------------------
-# SPRÁVA UŽIVATELŮ
-# -----------------------
-
-@app.route("/users")
-@login_required
-def users():
-    if current_user.role != "admin":
-        return "Access denied"
-    all_users = User.query.all()
-    return render_template("users.html", users=all_users)
-
-
-@app.route("/add_user", methods=["POST"])
-@login_required
-def add_user():
-    if current_user.role != "admin":
-        return "Access denied"
-
-    username = request.form["username"]
-    password = generate_password_hash(request.form["password"])
-    role = request.form["role"]
-
-    if User.query.filter_by(username=username).first():
-        return "Uživatel už existuje"
-
-    new_user = User(username=username, password=password, role=role)
-    db.session.add(new_user)
-    db.session.commit()
-
-    return redirect(url_for("users"))
-
-
-@app.route("/delete_user/<int:id>")
-@login_required
-def delete_user(id):
-    if current_user.role != "admin":
-        return "Access denied"
-
-    user = User.query.get_or_404(id)
-
-    if user.username == "admin":
-        return "Nelze smazat admina"
-
-    db.session.delete(user)
-    db.session.commit()
-
-    return redirect(url_for("users"))
-
-
-# -----------------------
-# EXPORT DO EXCELU
-# -----------------------
-
-@app.route('/export/<int:zakazka_id>')
-@login_required
-def export(zakazka_id):
-    zakazka = Zakazka.query.get_or_404(zakazka_id)
-    zaznamy = Zaznam.query.filter_by(zakazka_id=zakazka_id).all()
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Zakázka"
-
-    ws.append([
-        "Datum",
-        "Kód materiálu",
-        "Číslo dokladu",
-        "Dodavatel",
-        "Množství",
-        "Popis",
-        "Hodiny",
-        "Km",
-        "Čas na cestě"
-    ])
-
-    for z in zaznamy:
-        ws.append([
-            z.datum,
-            z.material_kod,
-            z.doklad,
-            z.dodavatel,
-            z.mnozstvi,
-            z.popis,
-            z.hodiny,
-            z.km,
-            z.cas_cesta
-        ])
-
-    file_stream = io.BytesIO()
-    wb.save(file_stream)
-    file_stream.seek(0)
-
-    return send_file(
-        file_stream,
-        as_attachment=True,
-        download_name=f"zakazka_{zakazka_id}.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+@app.route('/add_row/<int:job_id>', methods=['POST'])
+def add_row(job_id):
+    new_row = JobRow(
+        job_id=job_id,
+        material_name="",
+        material_cost=0,
+        transport_cost=0,
+        work_hours=0,
+        work_rate=0
     )
 
+    db.session.add(new_row)
+    db.session.commit()
 
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for("login"))
+    return redirect('/')
 
+# =====================
+# SAVE (EDIT ROWS)
+# =====================
 
-# -----------------------
+@app.route('/save/<int:job_id>', methods=['POST'])
+def save(job_id):
+    rows = JobRow.query.filter_by(job_id=job_id).all()
+
+    for i, row in enumerate(rows):
+        row.material_name = request.form.get(f"material_name_{row.id}")
+        row.material_cost = float(request.form.get(f"material_cost_{row.id}") or 0)
+        row.transport_cost = float(request.form.get(f"transport_cost_{row.id}") or 0)
+        row.work_hours = float(request.form.get(f"work_hours_{row.id}") or 0)
+        row.work_rate = float(request.form.get(f"work_rate_{row.id}") or 0)
+
+    db.session.commit()
+    return redirect('/')
+
+# =====================
+# CLOSE JOB (skrytí)
+# =====================
+
+@app.route('/close/<int:job_id>')
+def close_job(job_id):
+    job = Job.query.get(job_id)
+    job.closed = True
+    db.session.commit()
+    return redirect('/')
+
+# =====================
+# EXPORT EXCEL
+# =====================
+
+@app.route('/export/<int:job_id>')
+def export(job_id):
+    rows = JobRow.query.filter_by(job_id=job_id).all()
+
+    data = []
+    for r in rows:
+        total_work = (r.work_hours or 0) * (r.work_rate or 0)
+        total = (r.material_cost or 0) + (r.transport_cost or 0) + total_work
+
+        data.append({
+            "Materiál": r.material_name,
+            "Cena materiálu": r.material_cost,
+            "Doprava": r.transport_cost,
+            "Hodiny": r.work_hours,
+            "Sazba": r.work_rate,
+            "Cena práce": total_work,
+            "Celkem": total
+        })
+
+    df = pd.DataFrame(data)
+
+    filename = f"zakazka_{job_id}.xlsx"
+    df.to_excel(filename, index=False)
+
+    return send_file(filename, as_attachment=True)
+
+# =====================
 # RUN
-# -----------------------
+# =====================
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(debug=True)
