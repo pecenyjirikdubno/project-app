@@ -1,54 +1,140 @@
 <!DOCTYPE html>
-<html>
+<html lang="cs">
 <head>
-    <title>Uživatelé</title>
+    <meta charset="UTF-8">
+    <title>Správa uživatelů</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 16px;
+        }
+        .page {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+        h1 {
+            margin-top: 0;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin: 12px 0 6px;
+        }
+        input, select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+        button, a.button {
+            display: inline-block;
+            text-decoration: none;
+            text-align: center;
+            width: 100%;
+            margin-top: 12px;
+            padding: 12px;
+            border: none;
+            border-radius: 12px;
+            background: #2563eb;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-sizing: border-box;
+        }
+        a.delete {
+            background: #dc2626;
+        }
+        a.back {
+            background: #64748b;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 10px;
+            text-align: left;
+        }
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+    </style>
 </head>
 <body>
+<div class="page">
+    <div class="card">
+        <h1>Správa uživatelů</h1>
 
-<h2>Správa uživatelů</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
 
-<h3>Přidat uživatele</h3>
-<form method="POST" action="{{ url_for('add_user') }}">
-    <input type="text" name="username" placeholder="Uživatelské jméno" required>
-    <input type="password" name="password" placeholder="Heslo" required>
+        <form method="POST" action="{{ url_for('add_user') }}">
+            <label>Uživatelské jméno</label>
+            <input type="text" name="username" required>
 
-    <select name="role">
-        <option value="user">User</option>
-        <option value="admin">Admin</option>
-    </select>
+            <label>Heslo</label>
+            <input type="password" name="password" required>
 
-    <button type="submit">Vytvořit</button>
-</form>
+            <label>Role</label>
+            <select name="role">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+            </select>
 
-<hr>
+            <button type="submit">Vytvořit uživatele</button>
+        </form>
+    </div>
 
-<h3>Seznam uživatelů</h3>
+    <div class="card">
+        <h2>Seznam uživatelů</h2>
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Uživatel</th>
+                <th>Role</th>
+                <th>Akce</th>
+            </tr>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.role }}</td>
+                <td>
+                    {% if user.username != 'admin' %}
+                        <a class="button delete" href="{{ url_for('delete_user', user_id=user.id) }}">Smazat</a>
+                    {% else %}
+                        hlavní admin
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
 
-<table border="1">
-<tr>
-    <th>ID</th>
-    <th>Username</th>
-    <th>Role</th>
-    <th>Akce</th>
-</tr>
-
-{% for u in users %}
-<tr>
-    <td>{{ u.id }}</td>
-    <td>{{ u.username }}</td>
-    <td>{{ u.role }}</td>
-    <td>
-        {% if u.username != 'admin' %}
-        <a href="{{ url_for('delete_user', id=u.id) }}">Smazat</a>
-        {% endif %}
-    </td>
-</tr>
-{% endfor %}
-
-</table>
-
-<br>
-<a href="{{ url_for('dashboard') }}">⬅ Zpět</a>
-
+        <a class="button back" href="{{ url_for('index') }}">Zpět na zakázky</a>
+    </div>
+</div>
 </body>
 </html>
