@@ -9,7 +9,7 @@ from openpyxl import Workbook
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret123'
 
-# Railway DB automaticky nastaví DATABASE_URL
+# DB (Railway / SQLite fallback)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///database.db")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -27,7 +27,7 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True)
     password = db.Column(db.String(200))
-    role = db.Column(db.String(10))  # admin / user
+    role = db.Column(db.String(10))
 
 
 class Zakazka(db.Model):
@@ -66,7 +66,6 @@ def load_user(user_id):
 with app.app_context():
     db.create_all()
 
-    # vytvoření admina při prvním spuštění
     if not User.query.filter_by(username="admin").first():
         admin = User(
             username="admin",
@@ -160,6 +159,56 @@ def close(id):
 
 
 # -----------------------
+# SPRÁVA UŽIVATELŮ
+# -----------------------
+
+@app.route("/users")
+@login_required
+def users():
+    if current_user.role != "admin":
+        return "Access denied"
+    all_users = User.query.all()
+    return render_template("users.html", users=all_users)
+
+
+@app.route("/add_user", methods=["POST"])
+@login_required
+def add_user():
+    if current_user.role != "admin":
+        return "Access denied"
+
+    username = request.form["username"]
+    password = generate_password_hash(request.form["password"])
+    role = request.form["role"]
+
+    if User.query.filter_by(username=username).first():
+        return "Uživatel už existuje"
+
+    new_user = User(username=username, password=password, role=role)
+    db.session.add(new_user)
+    db.session.commit()
+
+    return redirect(url_for("users"))
+
+
+@app.route("/delete_user/<int:id>")
+@login_required
+def delete_user(id):
+    if current_user.role != "admin":
+        return "Access denied"
+
+    user = User.query.get_or_404(id)
+
+    if user.username == "admin":
+        return "Nelze smazat admina"
+
+    db.session.delete(user)
+    db.session.commit()
+
+    return redirect(url_for("users"))
+
+
+# -----------------------
 # EXPORT DO EXCELU
 # -----------------------
 
@@ -222,4 +271,5 @@ def logout():
 # -----------------------
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
