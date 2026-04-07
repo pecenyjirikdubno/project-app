@@ -6,9 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <style>
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
             margin: 0;
@@ -29,6 +27,12 @@
             font-size: 28px;
         }
 
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
         .card {
             background: #fff;
             border-radius: 16px;
@@ -41,11 +45,6 @@
             margin: 0 0 12px 0;
             font-size: 22px;
             color: #0f172a;
-        }
-
-        .muted {
-            color: #666;
-            font-size: 14px;
         }
 
         .section-title {
@@ -84,12 +83,6 @@
             background: #fff;
         }
 
-        input:focus {
-            outline: none;
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
-        }
-
         .top-form {
             display: grid;
             grid-template-columns: 1fr;
@@ -110,25 +103,10 @@
             margin-top: 8px;
         }
 
-        .btn-primary {
-            background: #2563eb;
-            color: white;
-        }
-
-        .btn-success {
-            background: #16a34a;
-            color: white;
-        }
-
-        .btn-warning {
-            background: #ea580c;
-            color: white;
-        }
-
-        .btn-secondary {
-            background: #64748b;
-            color: white;
-        }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-warning { background: #ea580c; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
 
         .totals {
             margin-top: 14px;
@@ -186,6 +164,14 @@
             margin-bottom: 12px;
         }
 
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
         @media (min-width: 700px) {
             .top-form {
                 grid-template-columns: 1fr auto;
@@ -201,6 +187,10 @@
                 grid-template-columns: repeat(2, 1fr);
                 gap: 12px;
             }
+
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
         }
 
         @media (min-width: 980px) {
@@ -214,6 +204,21 @@
 <div class="page">
 
     <h1>Zakázky</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+        {% if current_user.role == 'admin' %}
+            <a class="btn btn-secondary" href="{{ url_for('users') }}">Správa uživatelů</a>
+        {% endif %}
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
 
     <div class="card">
         <form method="POST" action="/create_job" class="top-form">
@@ -247,32 +252,32 @@
 
                     <div class="field-group">
                         <label>Materiál</label>
-                        <input type="text" name="material_name_{{ row.id }}" value="{{ row.material_name or '' }}" placeholder="Název materiálu">
+                        <input type="text" name="material_name_{{ row.id }}" value="{{ row.material_name or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Množství</label>
-                        <input type="number" step="any" name="quantity_{{ row.id }}" value="{{ row.quantity or '' }}" placeholder="0">
+                        <input type="number" step="any" name="quantity_{{ row.id }}" value="{{ row.quantity or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Číslo dokladu</label>
-                        <input type="text" name="document_number_{{ row.id }}" value="{{ row.document_number or '' }}" placeholder="Např. 2024-001">
+                        <input type="text" name="document_number_{{ row.id }}" value="{{ row.document_number or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Km</label>
-                        <input type="number" step="any" name="km_{{ row.id }}" value="{{ row.km or '' }}" placeholder="0">
+                        <input type="number" step="any" name="km_{{ row.id }}" value="{{ row.km or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Čas na cestě</label>
-                        <input type="number" step="any" name="travel_time_{{ row.id }}" value="{{ row.travel_time or '' }}" placeholder="0">
+                        <input type="number" step="any" name="travel_time_{{ row.id }}" value="{{ row.travel_time or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Odpracované hodiny</label>
-                        <input type="number" step="any" name="work_hours_{{ row.id }}" value="{{ row.work_hours or '' }}" placeholder="0">
+                        <input type="number" step="any" name="work_hours_{{ row.id }}" value="{{ row.work_hours or '' }}">
                     </div>
                 </div>
             </div>
@@ -310,9 +315,8 @@
 
         <div class="job-actions">
             <a class="btn btn-secondary" href="/export/{{ job.id }}">Export Excel</a>
-
-            {% if not job.closed %}
-            <a class="btn btn-warning" href="/close/{{ job.id }}">Uzavřít zakázku</a>
+            {% if not job.closed and current_user.role == 'admin' %}
+                <a class="btn btn-warning" href="/close/{{ job.id }}">Uzavřít zakázku</a>
             {% endif %}
         </div>
     </div>
