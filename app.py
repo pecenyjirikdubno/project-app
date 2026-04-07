@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, send_file
+rom flask import Flask, render_template, request, redirect, send_file
 from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
 import os
@@ -36,15 +36,16 @@ class JobRow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.Integer, db.ForeignKey('job.id'))
 
+    date = db.Column(db.String(20))             # datum
     material_name = db.Column(db.String(200))
 
-    quantity = db.Column(db.Float)        # množství
-    document_number = db.Column(db.String(100))  # číslo dokladu
+    quantity = db.Column(db.Float)              # množství
+    document_number = db.Column(db.String(100))# číslo dokladu
 
-    km = db.Column(db.Float)              # km dopravy
-    travel_time = db.Column(db.Float)     # čas na cestě
+    km = db.Column(db.Float)                   # km
+    travel_time = db.Column(db.Float)          # čas na cestě
 
-    work_rate = db.Column(db.Float)       # sazba (necháváme)
+    work_hours = db.Column(db.Float)           # odpracované hodiny
 
 # =====================
 # INIT DB
@@ -91,12 +92,13 @@ def create_job():
 def add_row(job_id):
     new_row = JobRow(
         job_id=job_id,
+        date="",
         material_name="",
         quantity=0,
         document_number="",
         km=0,
         travel_time=0,
-        work_rate=0
+        work_hours=0
     )
 
     db.session.add(new_row)
@@ -113,12 +115,13 @@ def save(job_id):
     rows = JobRow.query.filter_by(job_id=job_id).all()
 
     for row in rows:
+        row.date = request.form.get(f"date_{row.id}")
         row.material_name = request.form.get(f"material_name_{row.id}")
         row.quantity = float(request.form.get(f"quantity_{row.id}") or 0)
         row.document_number = request.form.get(f"document_number_{row.id}")
         row.km = float(request.form.get(f"km_{row.id}") or 0)
         row.travel_time = float(request.form.get(f"travel_time_{row.id}") or 0)
-        row.work_rate = float(request.form.get(f"work_rate_{row.id}") or 0)
+        row.work_hours = float(request.form.get(f"work_hours_{row.id}") or 0)
 
     db.session.commit()
     return redirect('/')
@@ -145,16 +148,14 @@ def export(job_id):
 
     data = []
     for r in rows:
-        total_work = (r.travel_time or 0) * (r.work_rate or 0)
-
         data.append({
+            "Datum": r.date,
             "Materiál": r.material_name,
             "Množství": r.quantity,
             "Číslo dokladu": r.document_number,
             "Km": r.km,
             "Čas na cestě": r.travel_time,
-            "Sazba": r.work_rate,
-            "Cena práce": total_work
+            "Odpracované hodiny": r.work_hours
         })
 
     df = pd.DataFrame(data)
