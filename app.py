@@ -1,4 +1,13 @@
-from flask import Flask, render_template, request, redirect, send_file, url_for, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    send_file,
+    url_for,
+    flash,
+    send_from_directory,
+)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -93,6 +102,19 @@ with app.app_context():
         admin.set_password("admin123")
         db.session.add(admin)
         db.session.commit()
+
+# =====================
+# PWA
+# =====================
+
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory(".", "manifest.json", mimetype="application/manifest+json")
+
+
+@app.route("/service-worker.js")
+def service_worker():
+    return send_from_directory(".", "service-worker.js", mimetype="application/javascript")
 
 # =====================
 # AUTH
@@ -238,7 +260,6 @@ def export(job_id):
         })
 
     df = pd.DataFrame(data)
-
     filename = f"zakazka_{job_id}.xlsx"
     df.to_excel(filename, index=False)
 
