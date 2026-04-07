@@ -16,7 +16,6 @@
 
 <h1>Zakázky</h1>
 
-<!-- CREATE JOB -->
 <form method="POST" action="/create_job">
     <input type="text" name="name" placeholder="Název zakázky">
     <button type="submit">Vytvořit</button>
@@ -31,16 +30,20 @@
     <form method="POST" action="/save/{{ job.id }}">
         <table>
             <tr>
+                <th>Datum</th>
                 <th>Materiál</th>
                 <th>Množství</th>
                 <th>Číslo dokladu</th>
                 <th>Km</th>
                 <th>Čas na cestě</th>
-                <th>Sazba</th>
+                <th>Odpracované hodiny</th>
             </tr>
 
             {% for row in job.rows %}
             <tr>
+                <td>
+                    <input type="date" name="date_{{ row.id }}" value="{{ row.date }}">
+                </td>
                 <td>
                     <input name="material_name_{{ row.id }}" value="{{ row.material_name }}">
                 </td>
@@ -57,7 +60,7 @@
                     <input type="number" step="any" name="travel_time_{{ row.id }}" value="{{ row.travel_time }}">
                 </td>
                 <td>
-                    <input type="number" step="any" name="work_rate_{{ row.id }}" value="{{ row.work_rate }}">
+                    <input type="number" step="any" name="work_hours_{{ row.id }}" value="{{ row.work_hours }}">
                 </td>
             </tr>
             {% endfor %}
