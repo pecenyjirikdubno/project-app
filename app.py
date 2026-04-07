@@ -6,16 +6,21 @@ import os
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret-key'
 
-# ✅ DATABASE (Railway PostgreSQL)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://postgres:KuVvnYasIsLZyRMhsmxuBLdmVDabGrAV@postgres.railway.internal:5432/railway"
-)
+# =====================
+# DATABASE (Railway SAFE)
+# =====================
 
-# fix postgres://
-if app.config['SQLALCHEMY_DATABASE_URI'].startswith("postgres://"):
-    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace("postgres://", "postgresql://")
+database_url = os.environ.get("DATABASE_URL")
 
+# fallback pro lokální běh
+if not database_url:
+    database_url = "sqlite:///database.db"
+
+# fix postgres:// → postgresql://
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://")
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -56,7 +61,6 @@ with app.app_context():
 def index():
     jobs = Job.query.all()
 
-    # přidáme rows ke každé zakázce
     for job in jobs:
         job.rows = JobRow.query.filter_by(job_id=job.id).all()
 
@@ -69,6 +73,9 @@ def index():
 @app.route('/create_job', methods=['POST'])
 def create_job():
     name = request.form.get('name')
+
+    if not name:
+        return redirect('/')
 
     new_job = Job(name=name)
     db.session.add(new_job)
@@ -97,14 +104,14 @@ def add_row(job_id):
     return redirect('/')
 
 # =====================
-# SAVE (EDIT ROWS)
+# SAVE
 # =====================
 
 @app.route('/save/<int:job_id>', methods=['POST'])
 def save(job_id):
     rows = JobRow.query.filter_by(job_id=job_id).all()
 
-    for i, row in enumerate(rows):
+    for row in rows:
         row.material_name = request.form.get(f"material_name_{row.id}")
         row.material_cost = float(request.form.get(f"material_cost_{row.id}") or 0)
         row.transport_cost = float(request.form.get(f"transport_cost_{row.id}") or 0)
@@ -115,14 +122,15 @@ def save(job_id):
     return redirect('/')
 
 # =====================
-# CLOSE JOB (skrytí)
+# CLOSE JOB
 # =====================
 
 @app.route('/close/<int:job_id>')
 def close_job(job_id):
     job = Job.query.get(job_id)
-    job.closed = True
-    db.session.commit()
+    if job:
+        job.closed = True
+        db.session.commit()
     return redirect('/')
 
 # =====================
@@ -160,4 +168,4 @@ def export(job_id):
 # =====================
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000)
