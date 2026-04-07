@@ -1,4 +1,4 @@
-rom flask import Flask, render_template, request, redirect, send_file
+from flask import Flask, render_template, request, redirect, send_file
 from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
 import os
