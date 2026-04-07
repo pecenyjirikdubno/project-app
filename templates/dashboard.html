@@ -1,16 +1,201 @@
-<h2>Zakázky</h2>
-<a href="{{ url_for('users') }}">👤 Správa uživatelů</a>
-<form action="{{ url_for('create') }}" method="POST">
-    <input type="text" name="name" placeholder="Název zakázky" required>
-    <button type="submit">Vytvořit</button>
-</form>
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard</title>
 
-<ul>
-{% for p in projects %}
-    <li>
-        <a href="/project/{{p.id}}">{{p.name}}</a>
-    </li>
-{% endfor %}
-</ul>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<a href="/logout">Odhlásit</a>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 0;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+            padding: 10px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .card {
+            background: white;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+        }
+
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 10px;
+        }
+
+        .section {
+            margin-top: 15px;
+            padding: 10px;
+            background: #fafafa;
+            border-radius: 8px;
+        }
+
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn-green {
+            background: #28a745;
+            color: white;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .job {
+            margin-top: 20px;
+        }
+
+        .row-card {
+            background: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #eee;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .actions {
+            position: sticky;
+            bottom: 0;
+            background: white;
+            padding: 10px;
+            border-top: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Zakázky</h1>
+
+    <!-- NOVÁ ZAKÁZKA -->
+    <div class="card">
+        <form method="POST" action="/create_job">
+            <label>Název zakázky *</label>
+            <input type="text" name="name" placeholder="Např. Rekonstrukce bytu" required>
+
+            <button class="btn-primary">Vytvořit zakázku</button>
+        </form>
+    </div>
+
+    <!-- SEZNAM ZAKÁZEK -->
+    {% for job in jobs %}
+    <div class="card job">
+
+        <h3>{{ job.name }}</h3>
+
+        <button onclick="toggleJob({{ job.id }})" class="btn-primary">
+            Otevřít / Zavřít
+        </button>
+
+        <div id="job-{{ job.id }}">
+
+            <form method="POST" action="/add_row/{{ job.id }}">
+
+                <!-- ŘÁDKY -->
+                {% for row in job.rows %}
+                <div class="row-card">
+
+                    <div class="section">
+                        <div class="section-title">Materiál</div>
+
+                        <input name="material_name" placeholder="Název materiálu">
+                        <input name="material_cost" placeholder="Cena materiálu">
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">Doprava</div>
+
+                        <input name="transport_cost" placeholder="Cena dopravy">
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">Práce</div>
+
+                        <input name="work_hours" placeholder="Hodiny">
+                        <input name="work_rate" placeholder="Cena/hod">
+                    </div>
+
+                </div>
+                {% endfor %}
+
+                <!-- AKCE -->
+                <div class="actions">
+                    <button class="btn-green">💾 Uložit</button>
+                </div>
+
+            </form>
+
+            <form method="POST" action="/add_row/{{ job.id }}">
+                <button class="btn-primary">➕ Přidat řádek</button>
+            </form>
+
+            <a href="/export/{{ job.id }}">
+                <button class="btn-green">📊 Export Excel</button>
+            </a>
+
+        </div>
+
+    </div>
+    {% endfor %}
+
+</div>
+
+<script>
+function toggleJob(id) {
+    let el = document.getElementById("job-" + id);
+    el.classList.toggle("hidden");
+}
+</script>
+
+</body>
+</html>
