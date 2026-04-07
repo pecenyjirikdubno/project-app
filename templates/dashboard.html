@@ -1,0 +1,16 @@
+<h2>Zakázky</h2>
+
+<form method="post" action="/create_project">
+    <input name="name" placeholder="Název zakázky">
+    <button>Vytvořit</button>
+</form>
+
+<ul>
+{% for p in projects %}
+    <li>
+        <a href="/project/{{p.id}}">{{p.name}}</a>
+    </li>
+{% endfor %}
+</ul>
+
+<a href="/logout">Odhlásit</a>
