@@ -32,20 +32,19 @@ class Job(db.Model):
     name = db.Column(db.String(200))
     closed = db.Column(db.Boolean, default=False)
 
+
 class JobRow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.Integer, db.ForeignKey('job.id'))
 
-    date = db.Column(db.String(20))             # datum
+    date = db.Column(db.String(20))
     material_name = db.Column(db.String(200))
+    quantity = db.Column(db.Float)
+    document_number = db.Column(db.String(100))
+    km = db.Column(db.Float)
+    travel_time = db.Column(db.Float)
+    work_hours = db.Column(db.Float)
 
-    quantity = db.Column(db.Float)              # množství
-    document_number = db.Column(db.String(100))# číslo dokladu
-
-    km = db.Column(db.Float)                   # km
-    travel_time = db.Column(db.Float)          # čas na cestě
-
-    work_hours = db.Column(db.Float)           # odpracované hodiny
 
 # =====================
 # INIT DB
@@ -53,6 +52,7 @@ class JobRow(db.Model):
 
 with app.app_context():
     db.create_all()
+
 
 # =====================
 # ROUTES
@@ -64,8 +64,13 @@ def index():
 
     for job in jobs:
         job.rows = JobRow.query.filter_by(job_id=job.id).all()
+        job.total_quantity = sum((r.quantity or 0) for r in job.rows)
+        job.total_km = sum((r.km or 0) for r in job.rows)
+        job.total_travel_time = sum((r.travel_time or 0) for r in job.rows)
+        job.total_work_hours = sum((r.work_hours or 0) for r in job.rows)
 
     return render_template('dashboard.html', jobs=jobs)
+
 
 # =====================
 # CREATE JOB
@@ -84,12 +89,18 @@ def create_job():
 
     return redirect('/')
 
+
 # =====================
 # ADD ROW
 # =====================
 
 @app.route('/add_row/<int:job_id>', methods=['POST'])
 def add_row(job_id):
+    job = Job.query.get(job_id)
+
+    if not job or job.closed:
+        return redirect('/')
+
     new_row = JobRow(
         job_id=job_id,
         date="",
@@ -106,12 +117,18 @@ def add_row(job_id):
 
     return redirect('/')
 
+
 # =====================
 # SAVE
 # =====================
 
 @app.route('/save/<int:job_id>', methods=['POST'])
 def save(job_id):
+    job = Job.query.get(job_id)
+
+    if not job or job.closed:
+        return redirect('/')
+
     rows = JobRow.query.filter_by(job_id=job_id).all()
 
     for row in rows:
@@ -126,6 +143,7 @@ def save(job_id):
     db.session.commit()
     return redirect('/')
 
+
 # =====================
 # CLOSE JOB
 # =====================
@@ -137,6 +155,7 @@ def close_job(job_id):
         job.closed = True
         db.session.commit()
     return redirect('/')
+
 
 # =====================
 # EXPORT EXCEL
@@ -164,6 +183,7 @@ def export(job_id):
     df.to_excel(filename, index=False)
 
     return send_file(filename, as_attachment=True)
+
 
 # =====================
 # RUN
