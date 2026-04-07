@@ -12,11 +12,9 @@ app.config['SECRET_KEY'] = 'secret-key'
 
 database_url = os.environ.get("DATABASE_URL")
 
-# fallback pro lokální běh
 if not database_url:
     database_url = "sqlite:///database.db"
 
-# fix postgres:// → postgresql://
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://")
 
@@ -39,12 +37,14 @@ class JobRow(db.Model):
     job_id = db.Column(db.Integer, db.ForeignKey('job.id'))
 
     material_name = db.Column(db.String(200))
-    material_cost = db.Column(db.Float)
 
-    transport_cost = db.Column(db.Float)
+    quantity = db.Column(db.Float)        # množství
+    document_number = db.Column(db.String(100))  # číslo dokladu
 
-    work_hours = db.Column(db.Float)
-    work_rate = db.Column(db.Float)
+    km = db.Column(db.Float)              # km dopravy
+    travel_time = db.Column(db.Float)     # čas na cestě
+
+    work_rate = db.Column(db.Float)       # sazba (necháváme)
 
 # =====================
 # INIT DB
@@ -92,9 +92,10 @@ def add_row(job_id):
     new_row = JobRow(
         job_id=job_id,
         material_name="",
-        material_cost=0,
-        transport_cost=0,
-        work_hours=0,
+        quantity=0,
+        document_number="",
+        km=0,
+        travel_time=0,
         work_rate=0
     )
 
@@ -113,9 +114,10 @@ def save(job_id):
 
     for row in rows:
         row.material_name = request.form.get(f"material_name_{row.id}")
-        row.material_cost = float(request.form.get(f"material_cost_{row.id}") or 0)
-        row.transport_cost = float(request.form.get(f"transport_cost_{row.id}") or 0)
-        row.work_hours = float(request.form.get(f"work_hours_{row.id}") or 0)
+        row.quantity = float(request.form.get(f"quantity_{row.id}") or 0)
+        row.document_number = request.form.get(f"document_number_{row.id}")
+        row.km = float(request.form.get(f"km_{row.id}") or 0)
+        row.travel_time = float(request.form.get(f"travel_time_{row.id}") or 0)
         row.work_rate = float(request.form.get(f"work_rate_{row.id}") or 0)
 
     db.session.commit()
@@ -143,17 +145,16 @@ def export(job_id):
 
     data = []
     for r in rows:
-        total_work = (r.work_hours or 0) * (r.work_rate or 0)
-        total = (r.material_cost or 0) + (r.transport_cost or 0) + total_work
+        total_work = (r.travel_time or 0) * (r.work_rate or 0)
 
         data.append({
             "Materiál": r.material_name,
-            "Cena materiálu": r.material_cost,
-            "Doprava": r.transport_cost,
-            "Hodiny": r.work_hours,
+            "Množství": r.quantity,
+            "Číslo dokladu": r.document_number,
+            "Km": r.km,
+            "Čas na cestě": r.travel_time,
             "Sazba": r.work_rate,
-            "Cena práce": total_work,
-            "Celkem": total
+            "Cena práce": total_work
         })
 
     df = pd.DataFrame(data)
