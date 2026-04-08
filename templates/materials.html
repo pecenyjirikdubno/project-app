@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Materiál</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Zakázky">
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-top: 0;
+            text-align: center;
+            font-size: 28px;
+        }
+
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .job-title {
+            margin: 0 0 12px 0;
+            font-size: 22px;
+            color: #0f172a;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 18px 0 10px 0;
+            color: #0f172a;
+        }
+
+        .row-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #fafafa;
+        }
+
+        .field-group {
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #475569;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 16px;
+            background: #fff;
+        }
+
+        .top-form {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .btn {
+            display: inline-block;
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 8px;
+        }
+
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-warning { background: #ea580c; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+
+        .totals {
+            margin-top: 14px;
+            padding: 12px;
+            border-radius: 12px;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+        }
+
+        .totals h3 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+        }
+
+        .totals-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .total-box {
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px solid #dbeafe;
+        }
+
+        .total-label {
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .total-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0f172a;
+        }
+
+        .job-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .closed-badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #fee2e2;
+            color: #991b1b;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 12px;
+        }
+
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
+        @media (min-width: 700px) {
+            .top-form {
+                grid-template-columns: 1fr auto;
+                align-items: end;
+            }
+
+            .job-actions {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            .row-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (min-width: 980px) {
+            .row-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <h1>Materiál</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <form method="POST" action="{{ url_for('create_job') }}" class="top-form">
+            <div class="field-group" style="margin-bottom:0;">
+                <label for="name">Název zakázky</label>
+                <input id="name" type="text" name="name" placeholder="Např. Rekonstrukce bytu" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Vytvořit zakázku</button>
+        </form>
+    </div>
+
+    {% for job in jobs %}
+    <div class="card">
+        <h2 class="job-title">{{ job.name }}</h2>
+
+        {% if job.closed %}
+            <div class="closed-badge">Zakázka je uzavřená</div>
+        {% endif %}
+
+        {% if not job.closed %}
+        <form method="POST" action="{{ url_for('save', job_id=job.id) }}">
+            {% for row in job.rows %}
+            <div class="row-card">
+                <div class="section-title">Řádek {{ loop.index }}</div>
+
+                <div class="row-grid">
+                    <div class="field-group">
+                        <label>Datum</label>
+                        <input type="date" name="date_{{ row.id }}" value="{{ row.date or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Materiál</label>
+                        <input type="text" name="material_name_{{ row.id }}" value="{{ row.material_name or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Množství</label>
+                        <input type="number" step="any" name="quantity_{{ row.id }}" value="{{ row.quantity or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Číslo dokladu</label>
+                        <input type="text" name="document_number_{{ row.id }}" value="{{ row.document_number or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Km</label>
+                        <input type="number" step="any" name="km_{{ row.id }}" value="{{ row.km or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Čas na cestě</label>
+                        <input type="number" step="any" name="travel_time_{{ row.id }}" value="{{ row.travel_time or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Odpracované hodiny</label>
+                        <input type="number" step="any" name="work_hours_{{ row.id }}" value="{{ row.work_hours or '' }}">
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+
+            <button type="submit" class="btn btn-success">Uložit zakázku</button>
+        </form>
+
+        <form method="POST" action="{{ url_for('add_row', job_id=job.id) }}">
+            <button type="submit" class="btn btn-primary">Přidat řádek</button>
+        </form>
+        {% endif %}
+
+        <div class="totals">
+            <h3>Součty zakázky</h3>
+            <div class="totals-grid">
+                <div class="total-box">
+                    <div class="total-label">Množství</div>
+                    <div class="total-value">{{ job.total_quantity or 0 }}</div>
+                </div>
+                <div class="total-box">
+                    <div class="total-label">Km</div>
+                    <div class="total-value">{{ job.total_km or 0 }}</div>
+                </div>
+                <div class="total-box">
+                    <div class="total-label">Čas na cestě</div>
+                    <div class="total-value">{{ job.total_travel_time or 0 }}</div>
+                </div>
+                <div class="total-box">
+                    <div class="total-label">Odpracované hodiny</div>
+                    <div class="total-value">{{ job.total_work_hours or 0 }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="job-actions">
+            <a class="btn btn-secondary" href="{{ url_for('export', job_id=job.id) }}">Export Excel</a>
+            {% if not job.closed and current_user.role == 'admin' %}
+                <a class="btn btn-warning" href="{{ url_for('close_job', job_id=job.id) }}">Uzavřít zakázku</a>
+            {% endif %}
+        </div>
+    </div>
