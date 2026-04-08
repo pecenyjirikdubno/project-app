@@ -145,6 +145,11 @@
             gap: 10px;
         }
 
+        .month-tools {
+            display: grid;
+            gap: 10px;
+        }
+
         @media (min-width: 700px) {
             .topbar {
                 grid-template-columns: 1fr 1fr;
@@ -159,9 +164,7 @@
             }
 
             .month-tools {
-                display: grid;
                 grid-template-columns: 1fr 1fr 1fr;
-                gap: 10px;
                 align-items: end;
             }
         }
@@ -241,16 +244,22 @@
             <div class="info-line"><strong>Ukončení:</strong> {{ time_to_str(record.end_time) or '—' }}</div>
         </div>
 
-        {% if can_user_edit_attendance(record) and current_user.role != 'admin' %}
-            {% if not record.start_time %}
-                <form method="POST" action="{{ url_for('attendance_start', record_id=record.id) }}">
-                    <button class="btn btn-success" type="submit">Potvrdit čas nástupu</button>
-                </form>
-            {% elif not record.end_time %}
-                <form method="POST" action="{{ url_for('attendance_end', record_id=record.id) }}">
-                    <button class="btn btn-warning" type="submit">Potvrdit čas ukončení</button>
-                </form>
-            {% endif %}
+        {% if current_user.role != 'admin' and can_user_edit_attendance(record) %}
+        <form method="POST" action="{{ url_for('attendance_user_update', record_id=record.id) }}">
+            <div class="admin-grid">
+                <div class="field-group">
+                    <label>Čas nástupu</label>
+                    <input type="time" name="start_time" value="{{ time_to_str(record.start_time) }}">
+                </div>
+
+                <div class="field-group">
+                    <label>Čas ukončení</label>
+                    <input type="time" name="end_time" value="{{ time_to_str(record.end_time) }}">
+                </div>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Uložit docházku</button>
+        </form>
         {% endif %}
 
         {% if current_user.role == 'admin' %}
