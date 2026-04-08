@@ -24,7 +24,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-from datetime import datetime, date, time
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import io
 import os
@@ -70,9 +70,6 @@ def now_local():
 def today_local():
     return now_local().date()
 
-def current_time_local():
-    return now_local().time().replace(second=0, microsecond=0)
-
 def first_day_of_month(year: int, month: int) -> date:
     return date(year, month, 1)
 
@@ -80,6 +77,20 @@ def next_month_first_day(year: int, month: int) -> date:
     if month == 12:
         return date(year + 1, 1, 1)
     return date(year, month + 1, 1)
+
+def time_to_str(value):
+    return value.strftime("%H:%M") if value else ""
+
+def datetime_to_str(value):
+    return value.strftime("%Y-%m-%d %H:%M:%S") if value else ""
+
+def parse_time_hhmm(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError:
+        return None
 
 # =====================
 # MODELY
@@ -121,13 +132,16 @@ class Attendance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     work_date = db.Column(db.Date, nullable=False)
+
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
 
-# =====================
-# LOGIN LOADER
-# =====================
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+
+    # audit časy zápisu
+    start_recorded_at = db.Column(db.DateTime, nullable=True)
+    end_recorded_at = db.Column(db.DateTime, nullable=True)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -160,17 +174,6 @@ def can_user_edit_attendance(record: Attendance) -> bool:
     if current_user.role == "admin":
         return True
     return record.user_id == current_user.id and record.work_date == today_local()
-
-def time_to_str(value):
-    return value.strftime("%H:%M") if value else ""
-
-def parse_time_hhmm(value: str):
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, "%H:%M").time()
-    except ValueError:
-        return None
 
 # =====================
 # PWA
@@ -439,7 +442,9 @@ def create_attendance_day():
 
     record = Attendance(
         user_id=current_user.id,
-        work_date=work_date
+        work_date=work_date,
+        created_at=now_local(),
+        updated_at=now_local(),
     )
     db.session.add(record)
     db.session.commit()
@@ -447,36 +452,42 @@ def create_attendance_day():
     flash("Den docházky byl vytvořen.", "success")
     return redirect(url_for("attendance"))
 
-@app.route("/attendance/start/<int:record_id>", methods=["POST"])
+@app.route("/attendance/user_update/<int:record_id>", methods=["POST"])
 @login_required
-def attendance_start(record_id):
+def attendance_user_update(record_id):
     record = Attendance.query.get_or_404(record_id)
 
     if not can_user_edit_attendance(record):
         flash("Tento záznam už nemůžeš upravovat.", "error")
         return redirect(url_for("attendance"))
 
-    if record.start_time is None:
-        record.start_time = current_time_local()
-        db.session.commit()
-        flash("Čas nástupu uložen.", "success")
+    start_time_raw = request.form.get("start_time", "").strip()
+    end_time_raw = request.form.get("end_time", "").strip()
 
-    return redirect(url_for("attendance"))
+    new_start = parse_time_hhmm(start_time_raw)
+    new_end = parse_time_hhmm(end_time_raw)
 
-@app.route("/attendance/end/<int:record_id>", methods=["POST"])
-@login_required
-def attendance_end(record_id):
-    record = Attendance.query.get_or_404(record_id)
-
-    if not can_user_edit_attendance(record):
-        flash("Tento záznam už nemůžeš upravovat.", "error")
+    if start_time_raw and new_start is None:
+        flash("Neplatný čas nástupu.", "error")
         return redirect(url_for("attendance"))
 
-    if record.start_time and record.end_time is None:
-        record.end_time = current_time_local()
-        db.session.commit()
-        flash("Čas ukončení uložen.", "success")
+    if end_time_raw and new_end is None:
+        flash("Neplatný čas ukončení.", "error")
+        return redirect(url_for("attendance"))
 
+    # audit časů zápisu
+    if record.start_time != new_start and new_start is not None:
+        record.start_recorded_at = now_local()
+
+    if record.end_time != new_end and new_end is not None:
+        record.end_recorded_at = now_local()
+
+    record.start_time = new_start
+    record.end_time = new_end
+    record.updated_at = now_local()
+
+    db.session.commit()
+    flash("Docházka uložena.", "success")
     return redirect(url_for("attendance"))
 
 @app.route("/attendance/admin_update/<int:record_id>", methods=["POST"])
@@ -497,8 +508,26 @@ def attendance_admin_update(record_id):
         flash("Neplatné datum.", "error")
         return redirect(url_for("attendance"))
 
-    record.start_time = parse_time_hhmm(start_time_raw)
-    record.end_time = parse_time_hhmm(end_time_raw)
+    new_start = parse_time_hhmm(start_time_raw)
+    new_end = parse_time_hhmm(end_time_raw)
+
+    if start_time_raw and new_start is None:
+        flash("Neplatný čas nástupu.", "error")
+        return redirect(url_for("attendance"))
+
+    if end_time_raw and new_end is None:
+        flash("Neplatný čas ukončení.", "error")
+        return redirect(url_for("attendance"))
+
+    if record.start_time != new_start and new_start is not None:
+        record.start_recorded_at = now_local()
+
+    if record.end_time != new_end and new_end is not None:
+        record.end_recorded_at = now_local()
+
+    record.start_time = new_start
+    record.end_time = new_end
+    record.updated_at = now_local()
 
     db.session.commit()
     flash("Docházka upravena.", "success")
@@ -516,7 +545,16 @@ def attendance_export_all_excel():
     ws = wb.active
     ws.title = "Docházka"
 
-    ws.append(["Uživatel", "Datum", "Nástup", "Ukončení"])
+    ws.append([
+        "Uživatel",
+        "Datum docházky",
+        "Nástup",
+        "Ukončení",
+        "Vytvořeno",
+        "Naposledy upraveno",
+        "Zápis nástupu proveden",
+        "Zápis ukončení proveden",
+    ])
 
     user_ids = {r.user_id for r in records}
     users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
@@ -528,6 +566,10 @@ def attendance_export_all_excel():
             r.work_date.isoformat() if r.work_date else "",
             time_to_str(r.start_time),
             time_to_str(r.end_time),
+            datetime_to_str(r.created_at),
+            datetime_to_str(r.updated_at),
+            datetime_to_str(r.start_recorded_at),
+            datetime_to_str(r.end_recorded_at),
         ])
 
     output = io.BytesIO()
@@ -572,7 +614,16 @@ def attendance_export_monthly_excel():
     ws = wb.active
     ws.title = f"{year}-{month:02d}"
 
-    ws.append(["Uživatel", "Datum", "Nástup", "Ukončení"])
+    ws.append([
+        "Uživatel",
+        "Datum docházky",
+        "Nástup",
+        "Ukončení",
+        "Vytvořeno",
+        "Naposledy upraveno",
+        "Zápis nástupu proveden",
+        "Zápis ukončení proveden",
+    ])
 
     for r in records:
         ws.append([
@@ -580,6 +631,10 @@ def attendance_export_monthly_excel():
             r.work_date.isoformat() if r.work_date else "",
             time_to_str(r.start_time),
             time_to_str(r.end_time),
+            datetime_to_str(r.created_at),
+            datetime_to_str(r.updated_at),
+            datetime_to_str(r.start_recorded_at),
+            datetime_to_str(r.end_recorded_at),
         ])
 
     output = io.BytesIO()
@@ -628,13 +683,27 @@ def attendance_export_monthly_pdf():
     elements.append(Paragraph(f"Docházka za měsíc {year}-{month:02d}", styles["Title"]))
     elements.append(Spacer(1, 12))
 
-    table_data = [["Uživatel", "Datum", "Nástup", "Ukončení"]]
+    table_data = [[
+        "Uživatel",
+        "Datum",
+        "Nástup",
+        "Ukončení",
+        "Vytvořeno",
+        "Upraveno",
+        "Zápis nástupu",
+        "Zápis ukončení",
+    ]]
+
     for r in records:
         table_data.append([
             user_map.get(r.user_id, ""),
             r.work_date.isoformat() if r.work_date else "",
             time_to_str(r.start_time),
             time_to_str(r.end_time),
+            datetime_to_str(r.created_at),
+            datetime_to_str(r.updated_at),
+            datetime_to_str(r.start_recorded_at),
+            datetime_to_str(r.end_recorded_at),
         ])
 
     table = Table(table_data, repeatRows=1)
