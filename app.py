@@ -26,12 +26,9 @@ from reportlab.lib.styles import getSampleStyleSheet
 
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
-from urllib.parse import urlparse
 import io
+import json
 import os
-import shutil
-import subprocess
-import tempfile
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "secret-key-change-this"
@@ -104,29 +101,27 @@ def parse_time_hhmm(value: str):
         return None
 
 
-def db_url_for_cli() -> str:
-    return app.config["SQLALCHEMY_DATABASE_URI"]
+def parse_date_yyyy_mm_dd(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
-def ensure_pg_tool(tool_name: str) -> bool:
-    return shutil.which(tool_name) is not None
+def parse_datetime_value(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
-
-def get_pg_connection_parts():
-    parsed = urlparse(db_url_for_cli())
-
-    return {
-        "host": parsed.hostname,
-        "port": str(parsed.port or 5432),
-        "user": parsed.username,
-        "password": parsed.password,
-        "dbname": parsed.path.lstrip("/"),
-    }
 
 # =====================
 # MODELY
 # =====================
-
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -179,6 +174,7 @@ class Attendance(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+
 # =====================
 # INIT DB
 # =====================
@@ -192,10 +188,10 @@ with app.app_context():
         db.session.add(admin)
         db.session.commit()
 
+
 # =====================
 # HELPERS
 # =====================
-
 
 def admin_required():
     if current_user.role != "admin":
@@ -209,10 +205,173 @@ def can_user_edit_attendance(record: Attendance) -> bool:
         return True
     return record.user_id == current_user.id and record.work_date == today_local()
 
+
+def export_backup_data():
+    users = User.query.order_by(User.id.asc()).all()
+    jobs = Job.query.order_by(Job.id.asc()).all()
+    job_rows = JobRow.query.order_by(JobRow.id.asc()).all()
+    attendance = Attendance.query.order_by(Attendance.id.asc()).all()
+
+    data = {
+        "meta": {
+            "created_at": now_local().isoformat(),
+            "app": "JZ Elektro evidenční systém",
+            "format": "internal-json-backup-v1",
+        },
+        "users": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "password_hash": u.password_hash,
+                "role": u.role,
+            }
+            for u in users
+        ],
+        "jobs": [
+            {
+                "id": j.id,
+                "name": j.name,
+                "closed": j.closed,
+            }
+            for j in jobs
+        ],
+        "job_rows": [
+            {
+                "id": r.id,
+                "job_id": r.job_id,
+                "date": r.date,
+                "material_name": r.material_name,
+                "quantity": r.quantity,
+                "document_number": r.document_number,
+                "km": r.km,
+                "travel_time": r.travel_time,
+                "work_hours": r.work_hours,
+            }
+            for r in job_rows
+        ],
+        "attendance": [
+            {
+                "id": a.id,
+                "user_id": a.user_id,
+                "work_date": a.work_date.isoformat() if a.work_date else None,
+                "start_time": a.start_time.strftime("%H:%M:%S") if a.start_time else None,
+                "end_time": a.end_time.strftime("%H:%M:%S") if a.end_time else None,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+                "start_recorded_at": a.start_recorded_at.isoformat() if a.start_recorded_at else None,
+                "end_recorded_at": a.end_recorded_at.isoformat() if a.end_recorded_at else None,
+            }
+            for a in attendance
+        ],
+    }
+    return data
+
+
+def restore_backup_data(data):
+    if not isinstance(data, dict):
+        raise ValueError("Záloha nemá správný formát.")
+
+    required_keys = {"users", "jobs", "job_rows", "attendance"}
+    if not required_keys.issubset(set(data.keys())):
+        raise ValueError("Záloha neobsahuje všechny potřebné části.")
+
+    db.session.remove()
+
+    # pořadí mazání kvůli vazbám
+    Attendance.query.delete()
+    JobRow.query.delete()
+    Job.query.delete()
+    User.query.delete()
+    db.session.commit()
+
+    max_user_id = 0
+    max_job_id = 0
+    max_job_row_id = 0
+    max_attendance_id = 0
+
+    for item in data.get("users", []):
+        user = User(
+            id=item["id"],
+            username=item["username"],
+            password_hash=item["password_hash"],
+            role=item["role"],
+        )
+        db.session.add(user)
+        max_user_id = max(max_user_id, item["id"])
+
+    for item in data.get("jobs", []):
+        job = Job(
+            id=item["id"],
+            name=item["name"],
+            closed=item["closed"],
+        )
+        db.session.add(job)
+        max_job_id = max(max_job_id, item["id"])
+
+    for item in data.get("job_rows", []):
+        row = JobRow(
+            id=item["id"],
+            job_id=item["job_id"],
+            date=item.get("date"),
+            material_name=item.get("material_name"),
+            quantity=item.get("quantity"),
+            document_number=item.get("document_number"),
+            km=item.get("km"),
+            travel_time=item.get("travel_time"),
+            work_hours=item.get("work_hours"),
+        )
+        db.session.add(row)
+        max_job_row_id = max(max_job_row_id, item["id"])
+
+    for item in data.get("attendance", []):
+        start_time = None
+        end_time = None
+
+        if item.get("start_time"):
+            start_time = datetime.strptime(item["start_time"], "%H:%M:%S").time()
+        if item.get("end_time"):
+            end_time = datetime.strptime(item["end_time"], "%H:%M:%S").time()
+
+        attendance = Attendance(
+            id=item["id"],
+            user_id=item["user_id"],
+            work_date=parse_date_yyyy_mm_dd(item.get("work_date")),
+            start_time=start_time,
+            end_time=end_time,
+            created_at=parse_datetime_value(item.get("created_at")) or now_local(),
+            updated_at=parse_datetime_value(item.get("updated_at")) or now_local(),
+            start_recorded_at=parse_datetime_value(item.get("start_recorded_at")),
+            end_recorded_at=parse_datetime_value(item.get("end_recorded_at")),
+        )
+        db.session.add(attendance)
+        max_attendance_id = max(max_attendance_id, item["id"])
+
+    db.session.commit()
+
+    # nastavení sekvencí pro PostgreSQL
+    try:
+        engine_name = db.engine.url.drivername
+        if "postgresql" in engine_name:
+            with db.engine.begin() as conn:
+                conn.execute(
+                    db.text(f"SELECT setval(pg_get_serial_sequence('user', 'id'), {max(max_user_id, 1)}, true);")
+                )
+                conn.execute(
+                    db.text(f"SELECT setval(pg_get_serial_sequence('job', 'id'), {max(max_job_id, 1)}, true);")
+                )
+                conn.execute(
+                    db.text(f"SELECT setval(pg_get_serial_sequence('job_row', 'id'), {max(max_job_row_id, 1)}, true);")
+                )
+                conn.execute(
+                    db.text(f"SELECT setval(pg_get_serial_sequence('attendance', 'id'), {max(max_attendance_id, 1)}, true);")
+                )
+    except Exception:
+        pass
+
+
 # =====================
 # PWA
 # =====================
-
 
 @app.route("/manifest.json")
 def manifest():
@@ -223,10 +382,10 @@ def manifest():
 def service_worker():
     return send_from_directory(".", "service-worker.js", mimetype="application/javascript")
 
+
 # =====================
 # AUTH
 # =====================
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -254,20 +413,20 @@ def logout():
     logout_user()
     return redirect(url_for("login"))
 
+
 # =====================
 # MAIN DASHBOARD
 # =====================
-
 
 @app.route("/")
 @login_required
 def dashboard():
     return render_template("dashboard.html")
 
+
 # =====================
 # MATERIÁL
 # =====================
-
 
 @app.route("/materials")
 @login_required
@@ -402,10 +561,10 @@ def export(job_id):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+
 # =====================
 # DOCHÁZKA
 # =====================
-
 
 @app.route("/attendance")
 @login_required
@@ -472,9 +631,8 @@ def create_attendance_day():
         flash("Vyber datum.", "error")
         return redirect(url_for("attendance"))
 
-    try:
-        work_date = datetime.strptime(work_date_raw, "%Y-%m-%d").date()
-    except ValueError:
+    work_date = parse_date_yyyy_mm_dd(work_date_raw)
+    if not work_date:
         flash("Neplatné datum.", "error")
         return redirect(url_for("attendance"))
 
@@ -550,9 +708,8 @@ def attendance_admin_update(record_id):
     start_time_raw = request.form.get("start_time", "").strip()
     end_time_raw = request.form.get("end_time", "").strip()
 
-    try:
-        record.work_date = datetime.strptime(work_date_raw, "%Y-%m-%d").date()
-    except ValueError:
+    work_date = parse_date_yyyy_mm_dd(work_date_raw)
+    if not work_date:
         flash("Neplatné datum.", "error")
         return redirect(url_for("attendance"))
 
@@ -573,6 +730,7 @@ def attendance_admin_update(record_id):
     if record.end_time != new_end and new_end is not None:
         record.end_recorded_at = now_local()
 
+    record.work_date = work_date
     record.start_time = new_start
     record.end_time = new_end
     record.updated_at = now_local()
@@ -778,10 +936,10 @@ def attendance_export_monthly_pdf():
         mimetype="application/pdf",
     )
 
-# =====================
-# ADMIN SQL BACKUP / RESTORE
-# =====================
 
+# =====================
+# ADMIN INTERNAL BACKUP / RESTORE
+# =====================
 
 @app.route("/admin/db-backup")
 @login_required
@@ -789,53 +947,20 @@ def admin_db_backup():
     if not admin_required():
         return redirect(url_for("dashboard"))
 
-    if not ensure_pg_tool("pg_dump"):
-        flash("Na serveru není dostupný nástroj pg_dump.", "error")
-        return redirect(url_for("dashboard"))
+    backup_data = export_backup_data()
 
-    conn = get_pg_connection_parts()
-    dump_name = f"backup_{now_local().strftime('%Y-%m-%d_%H-%M-%S')}.sql"
+    output = io.BytesIO()
+    output.write(json.dumps(backup_data, ensure_ascii=False, indent=2).encode("utf-8"))
+    output.seek(0)
 
-    with tempfile.NamedTemporaryFile(suffix=".sql", delete=False) as tmp:
-        tmp_path = tmp.name
+    filename = f"backup_{now_local().strftime('%Y-%m-%d_%H-%M-%S')}.json"
 
-    try:
-        env = os.environ.copy()
-        if conn["password"]:
-            env["PGPASSWORD"] = conn["password"]
-
-        cmd = [
-            "pg_dump",
-            "-h", conn["host"],
-            "-p", conn["port"],
-            "-U", conn["user"],
-            "-d", conn["dbname"],
-            "--clean",
-            "--if-exists",
-            "--no-owner",
-            "--no-privileges",
-            "-f", tmp_path,
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-
-        if result.returncode != 0:
-            flash(f"Záloha databáze selhala: {result.stderr}", "error")
-            return redirect(url_for("dashboard"))
-
-        with open(tmp_path, "rb") as f:
-            data = io.BytesIO(f.read())
-
-        data.seek(0)
-        return send_file(
-            data,
-            as_attachment=True,
-            download_name=dump_name,
-            mimetype="application/sql",
-        )
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/json",
+    )
 
 
 @app.route("/admin/db-restore", methods=["POST"])
@@ -844,62 +969,31 @@ def admin_db_restore():
     if not admin_required():
         return redirect(url_for("dashboard"))
 
-    if not ensure_pg_tool("psql"):
-        flash("Na serveru není dostupný nástroj psql.", "error")
-        return redirect(url_for("dashboard"))
-
     uploaded_file = request.files.get("backup_file")
 
     if not uploaded_file or uploaded_file.filename == "":
-        flash("Vyber SQL soubor pro obnovu.", "error")
+        flash("Vyber JSON soubor pro obnovu.", "error")
         return redirect(url_for("dashboard"))
 
-    if not uploaded_file.filename.lower().endswith(".sql"):
-        flash("Obnovit lze jen ze souboru .sql", "error")
+    if not uploaded_file.filename.lower().endswith(".json"):
+        flash("Obnovit lze jen ze souboru .json", "error")
         return redirect(url_for("dashboard"))
-
-    conn = get_pg_connection_parts()
-
-    with tempfile.NamedTemporaryFile(suffix=".sql", delete=False) as tmp:
-        tmp_path = tmp.name
-        uploaded_file.save(tmp_path)
 
     try:
-        db.session.remove()
-        db.engine.dispose()
+        content = uploaded_file.read().decode("utf-8")
+        data = json.loads(content)
+        restore_backup_data(data)
+        flash("Databáze byla úspěšně obnovena z interní zálohy.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Obnova databáze selhala: {str(e)}", "error")
 
-        env = os.environ.copy()
-        if conn["password"]:
-            env["PGPASSWORD"] = conn["password"]
+    return redirect(url_for("dashboard"))
 
-        cmd = [
-            "psql",
-            "-h", conn["host"],
-            "-p", conn["port"],
-            "-U", conn["user"],
-            "-d", conn["dbname"],
-            "-v", "ON_ERROR_STOP=1",
-            "-f", tmp_path,
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-
-        db.engine.dispose()
-
-        if result.returncode != 0:
-            flash(f"Obnova databáze selhala: {result.stderr}", "error")
-            return redirect(url_for("dashboard"))
-
-        flash("Databáze byla úspěšně obnovena ze SQL dumpu.", "success")
-        return redirect(url_for("dashboard"))
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
 # =====================
 # USER MANAGEMENT
 # =====================
-
 
 @app.route("/users")
 @login_required
@@ -963,10 +1057,10 @@ def delete_user(user_id):
     flash("Uživatel byl smazán.", "success")
     return redirect(url_for("users"))
 
+
 # =====================
 # RUN
 # =====================
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
