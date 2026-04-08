@@ -13,61 +13,146 @@
     <meta name="apple-mobile-web-app-title" content="Zakázky">
 
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
             padding: 16px;
             font-family: Arial, sans-serif;
             background: #f4f6f8;
             color: #222;
-            display: flex;
-            flex-direction: column;
             min-height: 100vh;
         }
 
         .page {
-            max-width: 600px;
+            max-width: 720px;
             margin: 0 auto;
-            width: 100%;
-            flex: 1;
+            padding-bottom: 70px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
         }
 
         h1 {
             text-align: center;
-            font-size: 24px;
+            margin-top: 10px;
+            margin-bottom: 8px;
+            font-size: 26px;
+            line-height: 1.3;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #64748b;
             margin-bottom: 24px;
         }
 
-        .menu {
+        .menu-grid {
             display: grid;
-            gap: 14px;
+            grid-template-columns: 1fr;
+            gap: 16px;
         }
 
-        .btn {
+        .big-btn {
             display: block;
-            width: 100%;
-            border: none;
-            border-radius: 14px;
-            padding: 16px;
-            font-size: 18px;
-            font-weight: bold;
-            text-align: center;
             text-decoration: none;
-            cursor: pointer;
+            text-align: center;
+            padding: 24px 18px;
+            border-radius: 16px;
+            font-size: 22px;
+            font-weight: bold;
+            color: white;
         }
 
-        .btn-primary {
+        .materials {
             background: #2563eb;
-            color: white;
         }
 
-        .btn-success {
+        .attendance {
             background: #16a34a;
-            color: white;
         }
 
-        .btn-secondary {
-            background: #64748b;
+        .secondary-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .secondary-btn {
+            display: block;
+            text-decoration: none;
+            text-align: center;
+            padding: 14px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
             color: white;
+            background: #64748b;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .admin-title {
+            margin-top: 0;
+            margin-bottom: 14px;
+            font-size: 20px;
+            color: #0f172a;
+        }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #475569;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 14px;
+            background: #fff;
+        }
+
+        .backup-btn {
+            background: #0f766e;
+        }
+
+        .restore-btn {
+            background: #dc2626;
+        }
+
+        .warning {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
         }
 
         .footer {
@@ -77,25 +162,73 @@
             font-size: 12px;
             color: #64748b;
         }
+
+        @media (min-width: 700px) {
+            .menu-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .secondary-actions {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-
 <div class="page">
+    <div class="card">
+        <h1>Vítejte v evidenčním systému společnosti JZ Elektro</h1>
+        <div class="subtitle">
+            Přihlášen: <strong>{{ current_user.username }}</strong> ({{ current_user.role }})
+        </div>
 
-    <h1>Vítejte v evidenčním systému společnosti JZ Elektro</h1>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
 
-    <div class="menu">
-        <a href="{{ url_for('materials') }}" class="btn btn-primary">Materiál</a>
-        <a href="{{ url_for('attendance') }}" class="btn btn-success">Docházka</a>
+        <div class="menu-grid">
+            <a class="big-btn materials" href="{{ url_for('materials') }}">Materiál</a>
+            <a class="big-btn attendance" href="{{ url_for('attendance') }}">Docházka</a>
+        </div>
 
-        {% if current_user.role == 'admin' %}
-            <a href="{{ url_for('users') }}" class="btn btn-secondary">Uživatelé</a>
-        {% endif %}
-
-        <a href="{{ url_for('logout') }}" class="btn btn-secondary">Odhlásit se</a>
+        <div class="secondary-actions">
+            {% if current_user.role == 'admin' %}
+                <a class="secondary-btn" href="{{ url_for('users') }}">Správa uživatelů</a>
+            {% endif %}
+            <a class="secondary-btn" href="{{ url_for('logout') }}">Odhlásit se</a>
+        </div>
     </div>
 
+    {% if current_user.role == 'admin' %}
+    <div class="card">
+        <h2 class="admin-title">Správa databáze</h2>
+
+        <a class="secondary-btn backup-btn" href="{{ url_for('admin_db_backup') }}">
+            Záloha databáze (SQL dump)
+        </a>
+
+        <form method="POST" action="{{ url_for('admin_db_restore') }}" enctype="multipart/form-data" style="margin-top:16px;">
+            <div class="field-group">
+                <label for="backup_file">Obnovit databázi ze souboru .sql</label>
+                <input id="backup_file" type="file" name="backup_file" accept=".sql" required>
+            </div>
+
+            <button class="secondary-btn restore-btn" type="submit"
+                    onclick="return confirm('Opravdu chceš obnovit databázi ze zálohy? Tato akce přepíše aktuální data.')">
+                Obnovit databázi
+            </button>
+        </form>
+
+        <div class="warning">
+            Obnova databáze přepíše aktuální data. Používej ji jen jako admin a ideálně ve chvíli,
+            kdy v aplikaci nikdo další nepracuje.
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <div class="footer">
@@ -109,6 +242,5 @@ if ("serviceWorker" in navigator) {
   });
 }
 </script>
-
 </body>
 </html>
