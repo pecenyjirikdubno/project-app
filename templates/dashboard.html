@@ -208,13 +208,13 @@
         <h2 class="admin-title">Správa databáze</h2>
 
         <a class="secondary-btn backup-btn" href="{{ url_for('admin_db_backup') }}">
-            Záloha databáze (SQL dump)
+            Záloha databáze
         </a>
 
         <form method="POST" action="{{ url_for('admin_db_restore') }}" enctype="multipart/form-data" style="margin-top:16px;">
             <div class="field-group">
-                <label for="backup_file">Obnovit databázi ze souboru .sql</label>
-                <input id="backup_file" type="file" name="backup_file" accept=".sql" required>
+                <label for="backup_file">Obnovit databázi ze souboru .json</label>
+                <input id="backup_file" type="file" name="backup_file" accept=".json" required>
             </div>
 
             <button class="secondary-btn restore-btn" type="submit"
