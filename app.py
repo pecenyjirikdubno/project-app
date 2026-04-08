@@ -64,25 +64,32 @@ login_manager.login_message = "Nejdřív se prosím přihlas."
 
 APP_TZ = ZoneInfo("Europe/Prague")
 
+
 def now_local():
     return datetime.now(APP_TZ)
+
 
 def today_local():
     return now_local().date()
 
+
 def first_day_of_month(year: int, month: int) -> date:
     return date(year, month, 1)
+
 
 def next_month_first_day(year: int, month: int) -> date:
     if month == 12:
         return date(year + 1, 1, 1)
     return date(year, month + 1, 1)
 
+
 def time_to_str(value):
     return value.strftime("%H:%M") if value else ""
 
+
 def datetime_to_str(value):
     return value.strftime("%Y-%m-%d %H:%M:%S") if value else ""
+
 
 def parse_time_hhmm(value: str):
     if not value:
@@ -95,6 +102,7 @@ def parse_time_hhmm(value: str):
 # =====================
 # MODELY
 # =====================
+
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -139,9 +147,10 @@ class Attendance(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
     updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
 
-    # audit časy zápisu
+    # auditní časy zápisů
     start_recorded_at = db.Column(db.DateTime, nullable=True)
     end_recorded_at = db.Column(db.DateTime, nullable=True)
+
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -164,11 +173,13 @@ with app.app_context():
 # HELPERS
 # =====================
 
+
 def admin_required():
     if current_user.role != "admin":
         flash("Tato akce je dostupná jen pro admina.", "error")
         return False
     return True
+
 
 def can_user_edit_attendance(record: Attendance) -> bool:
     if current_user.role == "admin":
@@ -179,9 +190,11 @@ def can_user_edit_attendance(record: Attendance) -> bool:
 # PWA
 # =====================
 
+
 @app.route("/manifest.json")
 def manifest():
     return send_from_directory(".", "manifest.json", mimetype="application/manifest+json")
+
 
 @app.route("/service-worker.js")
 def service_worker():
@@ -190,6 +203,7 @@ def service_worker():
 # =====================
 # AUTH
 # =====================
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -210,6 +224,7 @@ def login():
 
     return render_template("login.html")
 
+
 @app.route("/logout")
 @login_required
 def logout():
@@ -220,6 +235,7 @@ def logout():
 # MAIN DASHBOARD
 # =====================
 
+
 @app.route("/")
 @login_required
 def dashboard():
@@ -228,6 +244,7 @@ def dashboard():
 # =====================
 # MATERIÁL
 # =====================
+
 
 @app.route("/materials")
 @login_required
@@ -243,6 +260,7 @@ def materials():
 
     return render_template("materials.html", jobs=jobs)
 
+
 @app.route("/create_job", methods=["POST"])
 @login_required
 def create_job():
@@ -257,6 +275,7 @@ def create_job():
     db.session.commit()
 
     return redirect(url_for("materials"))
+
 
 @app.route("/add_row/<int:job_id>", methods=["POST"])
 @login_required
@@ -282,6 +301,7 @@ def add_row(job_id):
 
     return redirect(url_for("materials"))
 
+
 @app.route("/save/<int:job_id>", methods=["POST"])
 @login_required
 def save(job_id):
@@ -305,6 +325,7 @@ def save(job_id):
     flash("Zakázka uložena.", "success")
     return redirect(url_for("materials"))
 
+
 @app.route("/close/<int:job_id>")
 @login_required
 def close_job(job_id):
@@ -315,6 +336,7 @@ def close_job(job_id):
         db.session.commit()
 
     return redirect(url_for("materials"))
+
 
 @app.route("/export/<int:job_id>")
 @login_required
@@ -360,6 +382,7 @@ def export(job_id):
 # =====================
 # DOCHÁZKA
 # =====================
+
 
 @app.route("/attendance")
 @login_required
@@ -416,6 +439,7 @@ def attendance():
         time_to_str=time_to_str,
     )
 
+
 @app.route("/attendance/create_day", methods=["POST"])
 @login_required
 def create_attendance_day():
@@ -452,6 +476,7 @@ def create_attendance_day():
     flash("Den docházky byl vytvořen.", "success")
     return redirect(url_for("attendance"))
 
+
 @app.route("/attendance/user_update/<int:record_id>", methods=["POST"])
 @login_required
 def attendance_user_update(record_id):
@@ -475,7 +500,6 @@ def attendance_user_update(record_id):
         flash("Neplatný čas ukončení.", "error")
         return redirect(url_for("attendance"))
 
-    # audit časů zápisu
     if record.start_time != new_start and new_start is not None:
         record.start_recorded_at = now_local()
 
@@ -489,6 +513,7 @@ def attendance_user_update(record_id):
     db.session.commit()
     flash("Docházka uložena.", "success")
     return redirect(url_for("attendance"))
+
 
 @app.route("/attendance/admin_update/<int:record_id>", methods=["POST"])
 @login_required
@@ -532,6 +557,7 @@ def attendance_admin_update(record_id):
     db.session.commit()
     flash("Docházka upravena.", "success")
     return redirect(url_for("attendance"))
+
 
 @app.route("/attendance/export/all/excel")
 @login_required
@@ -582,6 +608,7 @@ def attendance_export_all_excel():
         download_name="dochazka_vse.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 @app.route("/attendance/export/monthly/excel")
 @login_required
@@ -647,6 +674,7 @@ def attendance_export_monthly_excel():
         download_name=f"dochazka_{year}_{month:02d}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 @app.route("/attendance/export/monthly/pdf")
 @login_required
@@ -731,6 +759,7 @@ def attendance_export_monthly_pdf():
 # USER MANAGEMENT
 # =====================
 
+
 @app.route("/users")
 @login_required
 def users():
@@ -740,6 +769,7 @@ def users():
 
     all_users = User.query.order_by(User.id.asc()).all()
     return render_template("users.html", users=all_users)
+
 
 @app.route("/add_user", methods=["POST"])
 @login_required
@@ -772,6 +802,7 @@ def add_user():
     flash("Uživatel byl vytvořen.", "success")
     return redirect(url_for("users"))
 
+
 @app.route("/delete_user/<int:user_id>")
 @login_required
 def delete_user(user_id):
@@ -794,6 +825,7 @@ def delete_user(user_id):
 # =====================
 # RUN
 # =====================
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
