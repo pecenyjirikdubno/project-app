@@ -4,71 +4,112 @@
     <meta charset="UTF-8">
     <title>Správa uživatelů</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Zakázky">
+
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
             margin: 0;
             padding: 16px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
         }
+
         .page {
-            max-width: 900px;
+            max-width: 980px;
             margin: 0 auto;
         }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 18px;
+            font-size: 28px;
+        }
+
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
         .card {
-            background: white;
+            background: #fff;
             border-radius: 16px;
             padding: 16px;
             margin-bottom: 18px;
             box-shadow: 0 4px 14px rgba(0,0,0,0.08);
         }
-        h1 {
+
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
             margin-top: 0;
+            margin-bottom: 12px;
+            color: #0f172a;
         }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
         label {
             display: block;
+            font-size: 13px;
             font-weight: bold;
-            margin: 12px 0 6px;
+            margin-bottom: 4px;
+            color: #475569;
         }
-        input, select {
+
+        input,
+        select {
             width: 100%;
-            box-sizing: border-box;
             padding: 12px;
             border: 1px solid #cbd5e1;
             border-radius: 10px;
             font-size: 16px;
+            background: #fff;
         }
-        button, a.button {
+
+        .btn {
             display: inline-block;
-            text-decoration: none;
-            text-align: center;
             width: 100%;
-            margin-top: 12px;
-            padding: 12px;
             border: none;
             border-radius: 12px;
-            background: #2563eb;
-            color: white;
+            padding: 12px 14px;
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
-            box-sizing: border-box;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 8px;
         }
-        a.delete {
-            background: #dc2626;
+
+        .btn-primary {
+            background: #2563eb;
+            color: white;
         }
-        a.back {
+
+        .btn-secondary {
             background: #64748b;
+            color: white;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
         }
-        th, td {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 10px;
-            text-align: left;
-        }
+
         .flash {
             background: #ecfeff;
             color: #155e75;
@@ -76,65 +117,153 @@
             border-radius: 10px;
             margin-bottom: 12px;
         }
+
+        .users-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .user-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px;
+            background: #fafafa;
+        }
+
+        .user-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 6px;
+        }
+
+        .user-meta {
+            color: #475569;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 4px;
+        }
+
+        .badge-admin {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .badge-user {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .protected {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 8px;
+        }
+
+        @media (min-width: 700px) {
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .form-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }
+
+            .users-list {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
     </style>
 </head>
 <body>
 <div class="page">
-    <div class="card">
-        <h1>Správa uživatelů</h1>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              <div class="flash">{{ message }}</div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
+    <h1>Správa uživatelů</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <h2 class="section-title">Přidat uživatele</h2>
 
         <form method="POST" action="{{ url_for('add_user') }}">
-            <label>Uživatelské jméno</label>
-            <input type="text" name="username" required>
+            <div class="form-grid">
+                <div class="field-group">
+                    <label>Uživatelské jméno</label>
+                    <input type="text" name="username" required>
+                </div>
 
-            <label>Heslo</label>
-            <input type="password" name="password" required>
+                <div class="field-group">
+                    <label>Heslo</label>
+                    <input type="password" name="password" required>
+                </div>
 
-            <label>Role</label>
-            <select name="role">
-                <option value="user">user</option>
-                <option value="admin">admin</option>
-            </select>
+                <div class="field-group">
+                    <label>Role</label>
+                    <select name="role">
+                        <option value="user">user</option>
+                        <option value="admin">admin</option>
+                    </select>
+                </div>
+            </div>
 
-            <button type="submit">Vytvořit uživatele</button>
+            <button class="btn btn-primary" type="submit">Vytvořit uživatele</button>
         </form>
     </div>
 
     <div class="card">
-        <h2>Seznam uživatelů</h2>
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Uživatel</th>
-                <th>Role</th>
-                <th>Akce</th>
-            </tr>
-            {% for user in users %}
-            <tr>
-                <td>{{ user.id }}</td>
-                <td>{{ user.username }}</td>
-                <td>{{ user.role }}</td>
-                <td>
-                    {% if user.username != 'admin' %}
-                        <a class="button delete" href="{{ url_for('delete_user', user_id=user.id) }}">Smazat</a>
-                    {% else %}
-                        hlavní admin
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </table>
+        <h2 class="section-title">Seznam uživatelů</h2>
 
-        <a class="button back" href="{{ url_for('index') }}">Zpět na zakázky</a>
+        <div class="users-list">
+            {% for user in users %}
+            <div class="user-card">
+                <div class="user-name">{{ user.username }}</div>
+                <div class="user-meta">ID: {{ user.id }}</div>
+
+                {% if user.role == 'admin' %}
+                    <span class="badge badge-admin">admin</span>
+                {% else %}
+                    <span class="badge badge-user">user</span>
+                {% endif %}
+
+                {% if user.username != 'admin' %}
+                    <a class="btn btn-danger" href="{{ url_for('delete_user', user_id=user.id) }}">Smazat uživatele</a>
+                {% else %}
+                    <div class="protected">Hlavního admina nelze smazat.</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
     </div>
+
 </div>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("/service-worker.js");
+  });
+}
+</script>
 </body>
 </html>
