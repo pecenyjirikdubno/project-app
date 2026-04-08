@@ -28,6 +28,9 @@ from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import io
 import os
+import shutil
+import subprocess
+import tempfile
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "secret-key-change-this"
@@ -147,7 +150,6 @@ class Attendance(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
     updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
 
-    # auditní časy zápisů
     start_recorded_at = db.Column(db.DateTime, nullable=True)
     end_recorded_at = db.Column(db.DateTime, nullable=True)
 
@@ -185,6 +187,14 @@ def can_user_edit_attendance(record: Attendance) -> bool:
     if current_user.role == "admin":
         return True
     return record.user_id == current_user.id and record.work_date == today_local()
+
+
+def db_url_for_cli() -> str:
+    return app.config["SQLALCHEMY_DATABASE_URI"]
+
+
+def ensure_pg_tool(tool_name: str) -> bool:
+    return shutil.which(tool_name) is not None
 
 # =====================
 # PWA
@@ -754,6 +764,111 @@ def attendance_export_monthly_pdf():
         download_name=f"dochazka_{year}_{month:02d}.pdf",
         mimetype="application/pdf",
     )
+
+# =====================
+# ADMIN SQL BACKUP / RESTORE
+# =====================
+
+
+@app.route("/admin/db-backup")
+@login_required
+def admin_db_backup():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    if not ensure_pg_tool("pg_dump"):
+        flash("Na serveru není dostupný nástroj pg_dump. Zkontroluj nixpacks.toml.", "error")
+        return redirect(url_for("dashboard"))
+
+    dump_name = f"backup_{now_local().strftime('%Y-%m-%d_%H-%M-%S')}.sql"
+
+    with tempfile.NamedTemporaryFile(suffix=".sql", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        cmd = [
+            "pg_dump",
+            "--dbname",
+            db_url_for_cli(),
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+            "--no-privileges",
+            "--file",
+            tmp_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            flash(f"Záloha databáze selhala: {result.stderr}", "error")
+            return redirect(url_for("dashboard"))
+
+        with open(tmp_path, "rb") as f:
+            data = io.BytesIO(f.read())
+
+        data.seek(0)
+        return send_file(
+            data,
+            as_attachment=True,
+            download_name=dump_name,
+            mimetype="application/sql",
+        )
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@app.route("/admin/db-restore", methods=["POST"])
+@login_required
+def admin_db_restore():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    if not ensure_pg_tool("psql"):
+        flash("Na serveru není dostupný nástroj psql. Zkontroluj nixpacks.toml.", "error")
+        return redirect(url_for("dashboard"))
+
+    uploaded_file = request.files.get("backup_file")
+
+    if not uploaded_file or uploaded_file.filename == "":
+        flash("Vyber SQL soubor pro obnovu.", "error")
+        return redirect(url_for("dashboard"))
+
+    if not uploaded_file.filename.lower().endswith(".sql"):
+        flash("Obnovit lze jen ze souboru .sql", "error")
+        return redirect(url_for("dashboard"))
+
+    with tempfile.NamedTemporaryFile(suffix=".sql", delete=False) as tmp:
+        tmp_path = tmp.name
+        uploaded_file.save(tmp_path)
+
+    try:
+        db.session.remove()
+        db.engine.dispose()
+
+        cmd = [
+            "psql",
+            db_url_for_cli(),
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-f",
+            tmp_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        db.engine.dispose()
+
+        if result.returncode != 0:
+            flash(f"Obnova databáze selhala: {result.stderr}", "error")
+            return redirect(url_for("dashboard"))
+
+        flash("Databáze byla úspěšně obnovena ze SQL dumpu.", "success")
+        return redirect(url_for("dashboard"))
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 # =====================
 # USER MANAGEMENT
