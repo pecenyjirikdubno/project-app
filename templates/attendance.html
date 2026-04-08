@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Docházka</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#16a34a">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Docházka">
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-top: 0;
+            text-align: center;
+            font-size: 28px;
+        }
+
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #475569;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 16px;
+            background: #fff;
+        }
+
+        .btn {
+            display: inline-block;
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 8px;
+        }
+
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-warning { background: #ea580c; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
+        .record-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px;
+            margin-bottom: 12px;
+            background: #fafafa;
+        }
+
+        .record-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .info-line {
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .badge-open {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-locked {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .admin-tools {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #ddd;
+        }
+
+        .admin-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        @media (min-width: 700px) {
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .record-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .admin-grid {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+
+            .month-tools {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 10px;
+                align-items: end;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <h1>Docházka</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <form method="POST" action="{{ url_for('create_attendance_day') }}">
+            <div class="field-group">
+                <label>Datum</label>
+                <input type="date" name="work_date" value="{{ today }}" required>
+            </div>
+            <button class="btn btn-primary" type="submit">Vytvořit den docházky</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <form method="GET" action="{{ url_for('attendance') }}">
+            <div class="field-group">
+                <label>Zobrazený měsíc</label>
+                <input type="month" name="month" value="{{ selected_month }}">
+            </div>
+            <button class="btn btn-secondary" type="submit">Zobrazit</button>
+        </form>
+    </div>
+
+    {% if current_user.role == 'admin' %}
+    <div class="card">
+        <div class="month-tools">
+            <div class="field-group" style="margin-bottom:0;">
+                <label>Měsíc pro export</label>
+                <input type="month" id="export_month" value="{{ selected_month }}">
+            </div>
+
+            <a class="btn btn-success" href="{{ url_for('attendance_export_all_excel') }}">Export vše Excel</a>
+
+            <button class="btn btn-warning" type="button" onclick="exportMonthlyExcel()">Měsíční Excel</button>
+        </div>
+
+        <button class="btn btn-danger" type="button" onclick="exportMonthlyPdf()">Měsíční PDF</button>
+    </div>
+    {% endif %}
+
+    {% for record in records %}
+    <div class="record-card">
+        {% if can_user_edit_attendance(record) %}
+            <div class="badge badge-open">Lze upravovat</div>
+        {% else %}
+            <div class="badge badge-locked">Uzamčeno</div>
+        {% endif %}
+
+        <div class="record-grid">
+            <div class="info-line"><strong>Datum:</strong> {{ record.work_date }}</div>
+
+            {% if current_user.role == 'admin' %}
+                <div class="info-line"><strong>Uživatel:</strong> {{ user_map.get(record.user_id, '') }}</div>
+            {% endif %}
+
+            <div class="info-line"><strong>Nástup:</strong> {{ time_to_str(record.start_time) or '—' }}</div>
+            <div class="info-line"><strong>Ukončení:</strong> {{ time_to_str(record.end_time) or '—' }}</div>
+        </div>
+
+        {% if can_user_edit_attendance(record) and current_user.role != 'admin' %}
+            {% if not record.start_time %}
+                <form method="POST" action="{{ url_for('attendance_start', record_id=record.id) }}">
+                    <button class="btn btn-success" type="submit">Potvrdit čas nástupu</button>
+                </form>
+            {% elif not record.end_time %}
+                <form method="POST" action="{{ url_for('attendance_end', record_id=record.id) }}">
+                    <button class="btn btn-warning" type="submit">Potvrdit čas ukončení</button>
+                </form>
+            {% endif %}
+        {% endif %}
+
+        {% if current_user.role == 'admin' %}
+        <div class="admin-tools">
+            <form method="POST" action="{{ url_for('attendance_admin_update', record_id=record.id) }}">
+                <div class="admin-grid">
+                    <div class="field-group">
+                        <label>Datum</label>
+                        <input type="date" name="work_date" value="{{ record.work_date }}" required>
+                    </div>
+
+                    <div class="field-group">
+                        <label>Čas nástupu</label>
+                        <input type="time" name="start_time" value="{{ time_to_str(record.start_time) }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Čas ukončení</label>
+                        <input type="time" name="end_time" value="{{ time_to_str(record.end_time) }}">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" type="submit">Uložit změny adminem</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+</div>
+
+<script>
+function exportMonthlyExcel() {
+    const month = document.getElementById("export_month").value;
+    window.location.href = "{{ url_for('attendance_export_monthly_excel') }}?month=" + encodeURIComponent(month);
+}
+
+function exportMonthlyPdf() {
+    const month = document.getElementById("export_month").value;
+    window.location.href = "{{ url_for('attendance_export_monthly_pdf') }}?month=" + encodeURIComponent(month);
+}
+</script>
+</body>
+</html>
