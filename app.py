@@ -7,6 +7,7 @@ from flask import (
     url_for,
     flash,
     send_from_directory,
+    jsonify,
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -60,10 +61,11 @@ login_manager.login_view = "login"
 login_manager.login_message = "Nejdřív se prosím přihlas."
 
 # =====================
-# TIMEZONE
+# TIMEZONE + QR
 # =====================
 
 APP_TZ = ZoneInfo("Europe/Prague")
+VALID_ATTENDANCE_QR = "JZ-ELEKTRO-ATTENDANCE"
 
 
 def now_local():
@@ -277,7 +279,6 @@ def restore_backup_data(data):
 
     db.session.remove()
 
-    # pořadí mazání kvůli vazbám
     Attendance.query.delete()
     JobRow.query.delete()
     Job.query.delete()
@@ -348,7 +349,6 @@ def restore_backup_data(data):
 
     db.session.commit()
 
-    # nastavení sekvencí pro PostgreSQL
     try:
         engine_name = db.engine.url.drivername
         if "postgresql" in engine_name:
@@ -611,6 +611,11 @@ def attendance():
             users = User.query.filter(User.id.in_(user_ids)).all()
             user_map = {u.id: u.username for u in users}
 
+    today_record = Attendance.query.filter_by(
+        user_id=current_user.id,
+        work_date=today_local()
+    ).first()
+
     return render_template(
         "attendance.html",
         records=records,
@@ -619,6 +624,8 @@ def attendance():
         user_map=user_map,
         can_user_edit_attendance=can_user_edit_attendance,
         time_to_str=time_to_str,
+        today_record=today_record,
+        valid_qr_value=VALID_ATTENDANCE_QR,
     )
 
 
@@ -656,6 +663,81 @@ def create_attendance_day():
 
     flash("Den docházky byl vytvořen.", "success")
     return redirect(url_for("attendance"))
+
+
+@app.route("/attendance/scan-qr", methods=["POST"])
+@login_required
+def attendance_scan_qr():
+    payload = request.get_json(silent=True) or {}
+    qr_value = (payload.get("qr_value") or "").strip()
+
+    if qr_value != VALID_ATTENDANCE_QR:
+        return jsonify({
+            "success": False,
+            "message": "Neplatný QR kód.",
+        }), 400
+
+    work_date = today_local()
+    current_dt = now_local()
+    current_tm = current_dt.time().replace(second=0, microsecond=0)
+
+    record = Attendance.query.filter_by(
+        user_id=current_user.id,
+        work_date=work_date
+    ).first()
+
+    if not record:
+        record = Attendance(
+            user_id=current_user.id,
+            work_date=work_date,
+            start_time=current_tm,
+            created_at=current_dt,
+            updated_at=current_dt,
+            start_recorded_at=current_dt,
+        )
+        db.session.add(record)
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "action": "start",
+            "message": f"Příchod zapsán v {record.start_time.strftime('%H:%M')}.",
+        })
+
+    if current_user.role != "admin" and record.work_date != today_local():
+        return jsonify({
+            "success": False,
+            "message": "Tento záznam už nelze upravit.",
+        }), 403
+
+    if record.start_time is None:
+        record.start_time = current_tm
+        record.start_recorded_at = current_dt
+        record.updated_at = current_dt
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "action": "start",
+            "message": f"Příchod zapsán v {record.start_time.strftime('%H:%M')}.",
+        })
+
+    if record.end_time is None:
+        record.end_time = current_tm
+        record.end_recorded_at = current_dt
+        record.updated_at = current_dt
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "action": "end",
+            "message": f"Odchod zapsán v {record.end_time.strftime('%H:%M')}.",
+        })
+
+    return jsonify({
+        "success": False,
+        "message": "Docházka pro dnešek je již uzavřena.",
+    }), 400
 
 
 @app.route("/attendance/user_update/<int:record_id>", methods=["POST"])
