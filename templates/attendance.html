@@ -163,13 +163,12 @@
             display: none;
         }
 
-        #qr-video {
+        #reader {
             width: 100%;
             max-width: 420px;
-            border-radius: 12px;
-            background: black;
-            display: block;
             margin: 0 auto 12px auto;
+            overflow: hidden;
+            border-radius: 12px;
         }
 
         .qr-status {
@@ -245,7 +244,7 @@
         <button class="btn btn-secondary" type="button" onclick="stopQrScanner()" id="stop-qr-btn" style="display:none;">Zastavit kameru</button>
 
         <div id="qr-reader-box">
-            <video id="qr-video" autoplay playsinline></video>
+            <div id="reader"></div>
             <div class="qr-status" id="qr-status">Namiřte kameru na firemní QR kód.</div>
         </div>
     </div>
@@ -354,6 +353,7 @@
 
 </div>
 
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script>
 function exportMonthlyExcel() {
     const month = document.getElementById("export_month").value;
@@ -365,95 +365,66 @@ function exportMonthlyPdf() {
     window.location.href = "{{ url_for('attendance_export_monthly_pdf') }}?month=" + encodeURIComponent(month);
 }
 
-let qrStream = null;
-let qrInterval = null;
-let qrVideo = null;
-let barcodeDetector = null;
+let html5QrCode = null;
+let qrRunning = false;
 
 async function startQrScanner() {
     const readerBox = document.getElementById("qr-reader-box");
     const statusBox = document.getElementById("qr-status");
     const stopBtn = document.getElementById("stop-qr-btn");
-    qrVideo = document.getElementById("qr-video");
 
-    if (!("mediaDevices" in navigator) || !navigator.mediaDevices.getUserMedia) {
-        statusBox.textContent = "Kamera není v tomto zařízení nebo prohlížeči dostupná.";
-        readerBox.style.display = "block";
+    if (qrRunning) {
         return;
     }
 
-    if (!("BarcodeDetector" in window)) {
-        statusBox.textContent = "Tento prohlížeč nepodporuje QR skenování přímo. Použij prosím Chrome nebo novější mobilní prohlížeč.";
-        readerBox.style.display = "block";
-        return;
-    }
+    readerBox.style.display = "block";
+    stopBtn.style.display = "block";
+    statusBox.textContent = "Spouštím kameru...";
 
     try {
-        barcodeDetector = new BarcodeDetector({ formats: ["qr_code"] });
-        qrStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" },
-            audio: false
-        });
+        html5QrCode = new Html5Qrcode("reader");
 
-        qrVideo.srcObject = qrStream;
-        readerBox.style.display = "block";
-        stopBtn.style.display = "block";
+        await html5QrCode.start(
+            { facingMode: "environment" },
+            {
+                fps: 10,
+                qrbox: { width: 220, height: 220 }
+            },
+            async (decodedText) => {
+                if (!decodedText) {
+                    return;
+                }
+
+                statusBox.textContent = "QR načten, ukládám docházku...";
+                await stopQrScanner();
+                await sendQrToServer(decodedText);
+            },
+            () => {}
+        );
+
+        qrRunning = true;
         statusBox.textContent = "Namiřte kameru na firemní QR kód.";
-
-        qrInterval = setInterval(scanQrFrame, 900);
     } catch (error) {
-        readerBox.style.display = "block";
-        statusBox.textContent = "Nepodařilo se spustit kameru.";
+        statusBox.textContent = "Nepodařilo se spustit kameru. Zkontrolujte oprávnění kamery.";
     }
 }
 
-function stopQrScanner() {
+async function stopQrScanner() {
     const readerBox = document.getElementById("qr-reader-box");
     const stopBtn = document.getElementById("stop-qr-btn");
 
-    if (qrInterval) {
-        clearInterval(qrInterval);
-        qrInterval = null;
+    try {
+        if (html5QrCode && qrRunning) {
+            await html5QrCode.stop();
+            await html5QrCode.clear();
+        }
+    } catch (error) {
     }
 
-    if (qrStream) {
-        qrStream.getTracks().forEach(track => track.stop());
-        qrStream = null;
-    }
-
-    if (qrVideo) {
-        qrVideo.srcObject = null;
-    }
-
+    html5QrCode = null;
+    qrRunning = false;
     readerBox.style.display = "none";
     stopBtn.style.display = "none";
-}
-
-async function scanQrFrame() {
-    const statusBox = document.getElementById("qr-status");
-
-    if (!qrVideo || !barcodeDetector || qrVideo.readyState < 2) {
-        return;
-    }
-
-    try {
-        const barcodes = await barcodeDetector.detect(qrVideo);
-
-        if (!barcodes || !barcodes.length) {
-            return;
-        }
-
-        const rawValue = (barcodes[0].rawValue || "").trim();
-        if (!rawValue) {
-            return;
-        }
-
-        statusBox.textContent = "QR načten, ukládám docházku...";
-        stopQrScanner();
-        await sendQrToServer(rawValue);
-    } catch (error) {
-        statusBox.textContent = "Chyba při čtení QR kódu.";
-    }
 }
 
 async function sendQrToServer(qrValue) {
@@ -469,7 +440,6 @@ async function sendQrToServer(qrValue) {
         });
 
         const data = await response.json();
-
         alert(data.message || "Hotovo.");
         window.location.reload();
     } catch (error) {
