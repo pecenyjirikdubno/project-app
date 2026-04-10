@@ -150,6 +150,37 @@
             gap: 10px;
         }
 
+        .today-box {
+            background: #ecfdf5;
+            border: 1px solid #bbf7d0;
+            border-radius: 14px;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+
+        #qr-reader-box {
+            margin-top: 14px;
+            display: none;
+        }
+
+        #qr-video {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 12px;
+            background: black;
+            display: block;
+            margin: 0 auto 12px auto;
+        }
+
+        .qr-status {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: #334155;
+            font-size: 14px;
+        }
+
         @media (min-width: 700px) {
             .topbar {
                 grid-template-columns: 1fr 1fr;
@@ -188,13 +219,45 @@
       {% endif %}
     {% endwith %}
 
+    {% if current_user.role != 'admin' %}
+    <div class="card">
+        <div class="today-box">
+            <div class="info-line"><strong>Dnešní stav:</strong></div>
+            <div class="info-line">
+                <strong>Příchod:</strong>
+                {% if today_record and today_record.start_time %}
+                    {{ time_to_str(today_record.start_time) }}
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+            <div class="info-line">
+                <strong>Odchod:</strong>
+                {% if today_record and today_record.end_time %}
+                    {{ time_to_str(today_record.end_time) }}
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+        </div>
+
+        <button class="btn btn-success" type="button" onclick="startQrScanner()">Načíst QR kód</button>
+        <button class="btn btn-secondary" type="button" onclick="stopQrScanner()" id="stop-qr-btn" style="display:none;">Zastavit kameru</button>
+
+        <div id="qr-reader-box">
+            <video id="qr-video" autoplay playsinline></video>
+            <div class="qr-status" id="qr-status">Namiřte kameru na firemní QR kód.</div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card">
         <form method="POST" action="{{ url_for('create_attendance_day') }}">
             <div class="field-group">
                 <label>Datum</label>
                 <input type="date" name="work_date" value="{{ today }}" required>
             </div>
-            <button class="btn btn-primary" type="submit">Vytvořit den docházky</button>
+            <button class="btn btn-primary" type="submit">Vytvořit den docházky ručně</button>
         </form>
     </div>
 
@@ -300,6 +363,118 @@ function exportMonthlyExcel() {
 function exportMonthlyPdf() {
     const month = document.getElementById("export_month").value;
     window.location.href = "{{ url_for('attendance_export_monthly_pdf') }}?month=" + encodeURIComponent(month);
+}
+
+let qrStream = null;
+let qrInterval = null;
+let qrVideo = null;
+let barcodeDetector = null;
+
+async function startQrScanner() {
+    const readerBox = document.getElementById("qr-reader-box");
+    const statusBox = document.getElementById("qr-status");
+    const stopBtn = document.getElementById("stop-qr-btn");
+    qrVideo = document.getElementById("qr-video");
+
+    if (!("mediaDevices" in navigator) || !navigator.mediaDevices.getUserMedia) {
+        statusBox.textContent = "Kamera není v tomto zařízení nebo prohlížeči dostupná.";
+        readerBox.style.display = "block";
+        return;
+    }
+
+    if (!("BarcodeDetector" in window)) {
+        statusBox.textContent = "Tento prohlížeč nepodporuje QR skenování přímo. Použij prosím Chrome nebo novější mobilní prohlížeč.";
+        readerBox.style.display = "block";
+        return;
+    }
+
+    try {
+        barcodeDetector = new BarcodeDetector({ formats: ["qr_code"] });
+        qrStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+            audio: false
+        });
+
+        qrVideo.srcObject = qrStream;
+        readerBox.style.display = "block";
+        stopBtn.style.display = "block";
+        statusBox.textContent = "Namiřte kameru na firemní QR kód.";
+
+        qrInterval = setInterval(scanQrFrame, 900);
+    } catch (error) {
+        readerBox.style.display = "block";
+        statusBox.textContent = "Nepodařilo se spustit kameru.";
+    }
+}
+
+function stopQrScanner() {
+    const readerBox = document.getElementById("qr-reader-box");
+    const stopBtn = document.getElementById("stop-qr-btn");
+
+    if (qrInterval) {
+        clearInterval(qrInterval);
+        qrInterval = null;
+    }
+
+    if (qrStream) {
+        qrStream.getTracks().forEach(track => track.stop());
+        qrStream = null;
+    }
+
+    if (qrVideo) {
+        qrVideo.srcObject = null;
+    }
+
+    readerBox.style.display = "none";
+    stopBtn.style.display = "none";
+}
+
+async function scanQrFrame() {
+    const statusBox = document.getElementById("qr-status");
+
+    if (!qrVideo || !barcodeDetector || qrVideo.readyState < 2) {
+        return;
+    }
+
+    try {
+        const barcodes = await barcodeDetector.detect(qrVideo);
+
+        if (!barcodes || !barcodes.length) {
+            return;
+        }
+
+        const rawValue = (barcodes[0].rawValue || "").trim();
+        if (!rawValue) {
+            return;
+        }
+
+        statusBox.textContent = "QR načten, ukládám docházku...";
+        stopQrScanner();
+        await sendQrToServer(rawValue);
+    } catch (error) {
+        statusBox.textContent = "Chyba při čtení QR kódu.";
+    }
+}
+
+async function sendQrToServer(qrValue) {
+    try {
+        const response = await fetch("{{ url_for('attendance_scan_qr') }}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                qr_value: qrValue
+            })
+        });
+
+        const data = await response.json();
+
+        alert(data.message || "Hotovo.");
+        window.location.reload();
+    } catch (error) {
+        alert("Nepodařilo se uložit docházku.");
+    }
 }
 </script>
 </body>
