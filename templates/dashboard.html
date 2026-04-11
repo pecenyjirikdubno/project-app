@@ -205,6 +205,18 @@
 
     {% if current_user.role == 'admin' %}
     <div class="card">
+        <h2 class="admin-title">QR terminál docházky</h2>
+
+        <a class="secondary-btn backup-btn" href="{{ url_for('qr_display') }}" target="_blank">
+            Otevřít živý QR kód
+        </a>
+
+        <div class="warning">
+            Pro vyšší bezpečnost používej pro zobrazení QR samostatný účet s rolí <strong>qr_terminal</strong>.
+        </div>
+    </div>
+
+    <div class="card">
         <h2 class="admin-title">Správa databáze</h2>
 
         <a class="secondary-btn backup-btn" href="{{ url_for('admin_db_backup') }}">
