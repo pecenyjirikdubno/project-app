@@ -79,6 +79,10 @@
             background: #16a34a;
         }
 
+        .tasks {
+            background: #7c3aed;
+        }
+
         .secondary-actions {
             display: grid;
             grid-template-columns: 1fr;
@@ -200,7 +204,7 @@
 
         @media (min-width: 700px) {
             .menu-grid {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: 1fr 1fr 1fr;
             }
 
             .secondary-actions {
@@ -228,6 +232,7 @@
         <div class="menu-grid">
             <a class="big-btn materials" href="{{ url_for('materials') }}">Materiál</a>
             <a class="big-btn attendance" href="{{ url_for('attendance') }}">Docházka</a>
+            <a class="big-btn tasks" href="{{ url_for('tasks') }}">Úkoly</a>
         </div>
 
         <div class="secondary-actions">
