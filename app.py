@@ -8,6 +8,7 @@ from flask import (
     flash,
     send_from_directory,
     jsonify,
+    abort,
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -25,7 +26,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import io
 import json
@@ -74,6 +75,10 @@ QR_ROTATION_SECONDS = 30
 QR_ALLOWED_SLOT_SKEW = 1
 QR_SECRET = os.environ.get("QR_SECRET", "zmenit-v-production-na-dlouhy-tajny-klic")
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPORTS_DIR = os.path.join(BASE_DIR, "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
 
 def now_local():
     return datetime.now(APP_TZ)
@@ -91,6 +96,12 @@ def next_month_first_day(year: int, month: int) -> date:
     if month == 12:
         return date(year + 1, 1, 1)
     return date(year, month + 1, 1)
+
+
+def previous_month(year: int, month: int):
+    if month == 1:
+        return year - 1, 12
+    return year, month - 1
 
 
 def time_to_str(value):
@@ -230,6 +241,12 @@ class Attendance(db.Model):
     end_recorded_at = db.Column(db.DateTime, nullable=True)
 
 
+class AppSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    setting_key = db.Column(db.String(100), unique=True, nullable=False)
+    setting_value = db.Column(db.String(255), nullable=True)
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -284,6 +301,21 @@ def redirect_after_login():
     if current_user.role == "qr_terminal":
         return redirect(url_for("qr_display"))
     return redirect(url_for("dashboard"))
+
+
+def get_setting(key: str, default=None):
+    record = AppSetting.query.filter_by(setting_key=key).first()
+    return record.setting_value if record else default
+
+
+def set_setting(key: str, value: str):
+    record = AppSetting.query.filter_by(setting_key=key).first()
+    if not record:
+        record = AppSetting(setting_key=key, setting_value=value)
+        db.session.add(record)
+    else:
+        record.setting_value = value
+    db.session.commit()
 
 
 def export_backup_data():
@@ -447,6 +479,151 @@ def restore_backup_data(data):
         pass
 
 
+def attendance_duration_hours(record: Attendance) -> float:
+    if not record.start_time or not record.end_time or not record.work_date:
+        return 0.0
+
+    start_dt = datetime.combine(record.work_date, record.start_time)
+    end_dt = datetime.combine(record.work_date, record.end_time)
+
+    if end_dt <= start_dt:
+        return 0.0
+
+    seconds = (end_dt - start_dt).total_seconds()
+    return round(seconds / 3600, 2)
+
+
+def generate_monthly_attendance_reports(year: int, month: int):
+    month_start = first_day_of_month(year, month)
+    month_end = next_month_first_day(year, month)
+
+    records = (
+        Attendance.query.filter(
+            Attendance.work_date >= month_start,
+            Attendance.work_date < month_end,
+        )
+        .order_by(Attendance.work_date.asc(), Attendance.id.asc())
+        .all()
+    )
+
+    user_ids = {r.user_id for r in records}
+    users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
+    user_map = {u.id: u.username for u in users}
+
+    detail_filename = f"dochazka_{year}_{month:02d}.xlsx"
+    summary_filename = f"souhrn_{year}_{month:02d}.xlsx"
+
+    detail_path = os.path.join(REPORTS_DIR, detail_filename)
+    summary_path = os.path.join(REPORTS_DIR, summary_filename)
+
+    # DETAIL
+    wb_detail = Workbook()
+    ws_detail = wb_detail.active
+    ws_detail.title = "Detail"
+
+    ws_detail.append([
+        "Uživatel",
+        "Datum",
+        "Nástup",
+        "Odchod",
+        "Odpracováno (h)",
+        "Zápis nástupu",
+        "Zápis odchodu",
+    ])
+
+    summary_data = {}
+
+    for r in records:
+        username = user_map.get(r.user_id, "")
+        hours = attendance_duration_hours(r)
+        incomplete = 1 if (not r.start_time or not r.end_time) else 0
+
+        ws_detail.append([
+            username,
+            r.work_date.isoformat() if r.work_date else "",
+            time_to_str(r.start_time),
+            time_to_str(r.end_time),
+            hours,
+            datetime_to_str(r.start_recorded_at),
+            datetime_to_str(r.end_recorded_at),
+        ])
+
+        if username not in summary_data:
+            summary_data[username] = {
+                "days": 0,
+                "hours": 0.0,
+                "incomplete": 0,
+            }
+
+        summary_data[username]["days"] += 1
+        summary_data[username]["hours"] += hours
+        summary_data[username]["incomplete"] += incomplete
+
+    wb_detail.save(detail_path)
+
+    # SUMMARY
+    wb_summary = Workbook()
+    ws_summary = wb_summary.active
+    ws_summary.title = "Souhrn"
+
+    ws_summary.append([
+        "Uživatel",
+        "Počet dnů",
+        "Celkem hodin",
+        "Neúplné záznamy",
+    ])
+
+    for username in sorted(summary_data.keys()):
+        item = summary_data[username]
+        ws_summary.append([
+            username,
+            item["days"],
+            round(item["hours"], 2),
+            item["incomplete"],
+        ])
+
+    wb_summary.save(summary_path)
+
+    return detail_filename, summary_filename
+
+
+def ensure_monthly_reports_for_admin():
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return
+
+    current_year = today_local().year
+    current_month = today_local().month
+
+    prev_year, prev_month = previous_month(current_year, current_month)
+    target_key = f"{prev_year}-{prev_month:02d}"
+
+    last_generated = get_setting("last_monthly_report_generated")
+
+    if last_generated == target_key:
+        return
+
+    generate_monthly_attendance_reports(prev_year, prev_month)
+    set_setting("last_monthly_report_generated", target_key)
+
+
+def list_report_files():
+    if not os.path.exists(REPORTS_DIR):
+        return []
+
+    files = []
+    for name in os.listdir(REPORTS_DIR):
+        if name.lower().endswith(".xlsx"):
+            full_path = os.path.join(REPORTS_DIR, name)
+            if os.path.isfile(full_path):
+                files.append({
+                    "name": name,
+                    "mtime": os.path.getmtime(full_path),
+                })
+
+    files.sort(key=lambda x: x["mtime"], reverse=True)
+    return files
+
+
 # =====================
 # PWA
 # =====================
@@ -501,7 +678,12 @@ def logout():
 def dashboard():
     if current_user.role == "qr_terminal":
         return redirect(url_for("qr_display"))
-    return render_template("dashboard.html")
+
+    if current_user.role == "admin":
+        ensure_monthly_reports_for_admin()
+
+    report_files = list_report_files() if current_user.role == "admin" else []
+    return render_template("dashboard.html", report_files=report_files)
 
 
 @app.route("/qr-display")
@@ -523,6 +705,22 @@ def qr_display():
         refresh_ms=refresh_after * 1000,
         qr_rotation_seconds=QR_ROTATION_SECONDS,
     )
+
+
+@app.route("/reports/<path:filename>")
+@login_required
+def download_report(filename):
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    safe_path = os.path.abspath(os.path.join(REPORTS_DIR, filename))
+    if not safe_path.startswith(os.path.abspath(REPORTS_DIR)):
+        abort(403)
+
+    if not os.path.exists(safe_path):
+        abort(404)
+
+    return send_file(safe_path, as_attachment=True, download_name=os.path.basename(safe_path))
 
 
 # =====================
