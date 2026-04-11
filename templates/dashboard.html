@@ -155,6 +155,41 @@
             margin-bottom: 12px;
         }
 
+        .report-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .report-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #fafafa;
+        }
+
+        .report-name {
+            font-size: 15px;
+            color: #0f172a;
+            word-break: break-word;
+        }
+
+        .report-link {
+            flex-shrink: 0;
+            display: inline-block;
+            text-decoration: none;
+            text-align: center;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            color: white;
+            background: #2563eb;
+        }
+
         .footer {
             position: fixed;
             bottom: 10px;
@@ -214,6 +249,27 @@
         <div class="warning">
             Pro vyšší bezpečnost používej pro zobrazení QR samostatný účet s rolí <strong>qr_terminal</strong>.
         </div>
+    </div>
+
+    <div class="card">
+        <h2 class="admin-title">Reporty docházky</h2>
+
+        <div class="warning">
+            Při prvním přihlášení admina v novém měsíci se automaticky vytvoří reporty za předchozí měsíc.
+        </div>
+
+        {% if report_files %}
+            <div class="report-list">
+                {% for report in report_files %}
+                <div class="report-item">
+                    <div class="report-name">{{ report.name }}</div>
+                    <a class="report-link" href="{{ url_for('download_report', filename=report.name) }}">Stáhnout</a>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="warning">Zatím nebyly vytvořeny žádné reporty.</div>
+        {% endif %}
     </div>
 
     <div class="card">
