@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Úkoly</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#7c3aed">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        .page {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 18px;
+            font-size: 28px;
+        }
+
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 0;
+            margin-bottom: 14px;
+            color: #0f172a;
+        }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #475569;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 16px;
+            background: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .btn {
+            display: inline-block;
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 8px;
+        }
+
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-warning { background: #ea580c; color: white; }
+
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
+        .task-list {
+            display: grid;
+            gap: 14px;
+        }
+
+        .task-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px;
+            background: #fafafa;
+        }
+
+        .task-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 8px;
+        }
+
+        .task-meta {
+            display: grid;
+            gap: 6px;
+            margin-bottom: 12px;
+            color: #334155;
+            font-size: 14px;
+        }
+
+        .task-text {
+            white-space: pre-wrap;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 8px;
+            font-size: 14px;
+            color: #1e293b;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .badge-new { background: #dbeafe; color: #1d4ed8; }
+        .badge-submitted { background: #fef3c7; color: #92400e; }
+        .badge-approved { background: #dcfce7; color: #166534; }
+
+        .admin-actions,
+        .user-actions {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #ddd;
+        }
+
+        .muted {
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        @media (min-width: 700px) {
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .form-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <h1>Úkoly</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <h2 class="section-title">Nový úkol</h2>
+
+        <form method="POST" action="{{ url_for('create_task') }}">
+            <div class="field-group">
+                <label>Název úkolu</label>
+                <input type="text" name="title" required>
+            </div>
+
+            <div class="field-group">
+                <label>Popis úkolu</label>
+                <textarea name="description" placeholder="Popis úkolu"></textarea>
+            </div>
+
+            <div class="form-grid">
+                <div class="field-group">
+                    <label>Datum zadání</label>
+                    <input type="date" name="assigned_date">
+                </div>
+
+                <div class="field-group">
+                    <label>Datum dokončení</label>
+                    <input type="date" name="due_date">
+                </div>
+            </div>
+
+            {% if current_user.role != 'admin' %}
+            <div class="field-group">
+                <label>Dokončení</label>
+                <textarea name="completion_text" placeholder="Sem může user rovnou vložit dokončení úkolu"></textarea>
+            </div>
+            {% endif %}
+
+            <button class="btn btn-primary" type="submit">Uložit úkol</button>
+        </form>
+    </div>
+
+    <div class="task-list">
+        {% for task in tasks %}
+        <div class="task-card">
+            {% if task.admin_confirmed %}
+                <span class="badge badge-approved">Potvrzený adminem</span>
+            {% elif task.status == 'submitted' %}
+                <span class="badge badge-submitted">Odevzdaný userem</span>
+            {% else %}
+                <span class="badge badge-new">Nový</span>
+            {% endif %}
+
+            <div class="task-title">{{ task.title }}</div>
+
+            <div class="task-meta">
+                <div><strong>Vytvořil:</strong> {{ user_map.get(task.created_by_user_id, '') }}</div>
+                <div><strong>Datum zadání:</strong> {{ task.assigned_date or '—' }}</div>
+                <div><strong>Datum dokončení:</strong> {{ task.due_date or '—' }}</div>
+                <div><strong>Stav:</strong> {{ task.status }}</div>
+                <div><strong>Aktualizováno:</strong> {{ task.updated_at.strftime('%Y-%m-%d %H:%M') if task.updated_at else '—' }}</div>
+            </div>
+
+            {% if task.description %}
+            <div class="muted"><strong>Popis:</strong></div>
+            <div class="task-text">{{ task.description }}</div>
+            {% endif %}
+
+            {% if task.completion_text %}
+            <div class="muted" style="margin-top:10px;"><strong>Dokončení:</strong></div>
+            <div class="task-text">{{ task.completion_text }}</div>
+            <div class="muted" style="margin-top:6px;">
+                Vyplnil: {{ user_map.get(task.completed_by_user_id, '') if task.completed_by_user_id else '—' }}
+            </div>
+            {% endif %}
+
+            {% if current_user.role != 'admin' %}
+            <div class="user-actions">
+                <form method="POST" action="{{ url_for('complete_task', task_id=task.id) }}">
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label>Datum zadání</label>
+                            <input type="date" name="assigned_date" value="{{ task.assigned_date or '' }}">
+                        </div>
+
+                        <div class="field-group">
+                            <label>Datum dokončení</label>
+                            <input type="date" name="due_date" value="{{ task.due_date or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label>Dokončení</label>
+                        <textarea name="completion_text" placeholder="Vlož dokončení úkolu">{{ task.completion_text or '' }}</textarea>
+                    </div>
+
+                    <button class="btn btn-success" type="submit">Uložit dokončení</button>
+                </form>
+            </div>
+            {% endif %}
+
+            {% if current_user.role == 'admin' %}
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('approve_task', task_id=task.id) }}">
+                    <button class="btn btn-success" type="submit">Potvrdit splnění</button>
+                </form>
+
+                <form method="POST" action="{{ url_for('delete_task', task_id=task.id) }}"
+                      onsubmit="return confirmDeleteTask();">
+                    <button class="btn btn-danger" type="submit">Smazat úkol</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script>
+function confirmDeleteTask() {
+    const first = confirm("Opravdu chcete smazat tento úkol?");
+    if (!first) {
+        return false;
+    }
+    const second = confirm("Tato akce je nevratná. Skutečně smazat úkol?");
+    return second;
+}
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("/service-worker.js");
+  });
+}
+</script>
+</body>
+</html>
