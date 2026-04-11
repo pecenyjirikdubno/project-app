@@ -26,7 +26,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import io
 import json
@@ -247,6 +247,28 @@ class AppSetting(db.Model):
     setting_value = db.Column(db.String(255), nullable=True)
 
 
+class Task(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+
+    assigned_date = db.Column(db.Date, nullable=True)
+    due_date = db.Column(db.Date, nullable=True)
+
+    completion_text = db.Column(db.Text, nullable=True)
+
+    status = db.Column(db.String(30), nullable=False, default="new")
+    admin_confirmed = db.Column(db.Boolean, nullable=False, default=False)
+
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    completed_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    admin_confirmed_at = db.Column(db.DateTime, nullable=True)
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -323,6 +345,7 @@ def export_backup_data():
     jobs = Job.query.order_by(Job.id.asc()).all()
     job_rows = JobRow.query.order_by(JobRow.id.asc()).all()
     attendance = Attendance.query.order_by(Attendance.id.asc()).all()
+    tasks = Task.query.order_by(Task.id.asc()).all()
 
     data = {
         "meta": {
@@ -375,6 +398,25 @@ def export_backup_data():
             }
             for a in attendance
         ],
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "description": t.description,
+                "assigned_date": t.assigned_date.isoformat() if t.assigned_date else None,
+                "due_date": t.due_date.isoformat() if t.due_date else None,
+                "completion_text": t.completion_text,
+                "status": t.status,
+                "admin_confirmed": t.admin_confirmed,
+                "created_by_user_id": t.created_by_user_id,
+                "completed_by_user_id": t.completed_by_user_id,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                "admin_confirmed_at": t.admin_confirmed_at.isoformat() if t.admin_confirmed_at else None,
+            }
+            for t in tasks
+        ],
     }
     return data
 
@@ -390,6 +432,7 @@ def restore_backup_data(data):
     db.session.remove()
 
     Attendance.query.delete()
+    Task.query.delete()
     JobRow.query.delete()
     Job.query.delete()
     User.query.delete()
@@ -399,6 +442,7 @@ def restore_backup_data(data):
     max_job_id = 0
     max_job_row_id = 0
     max_attendance_id = 0
+    max_task_id = 0
 
     for item in data.get("users", []):
         user = User(
@@ -457,6 +501,26 @@ def restore_backup_data(data):
         db.session.add(attendance)
         max_attendance_id = max(max_attendance_id, item["id"])
 
+    for item in data.get("tasks", []):
+        task = Task(
+            id=item["id"],
+            title=item["title"],
+            description=item.get("description"),
+            assigned_date=parse_date_yyyy_mm_dd(item.get("assigned_date")),
+            due_date=parse_date_yyyy_mm_dd(item.get("due_date")),
+            completion_text=item.get("completion_text"),
+            status=item.get("status", "new"),
+            admin_confirmed=item.get("admin_confirmed", False),
+            created_by_user_id=item["created_by_user_id"],
+            completed_by_user_id=item.get("completed_by_user_id"),
+            created_at=parse_datetime_value(item.get("created_at")) or now_local(),
+            updated_at=parse_datetime_value(item.get("updated_at")) or now_local(),
+            completed_at=parse_datetime_value(item.get("completed_at")),
+            admin_confirmed_at=parse_datetime_value(item.get("admin_confirmed_at")),
+        )
+        db.session.add(task)
+        max_task_id = max(max_task_id, item["id"])
+
     db.session.commit()
 
     try:
@@ -474,6 +538,9 @@ def restore_backup_data(data):
                 )
                 conn.execute(
                     db.text(f"SELECT setval(pg_get_serial_sequence('attendance', 'id'), {max(max_attendance_id, 1)}, true);")
+                )
+                conn.execute(
+                    db.text(f"SELECT setval(pg_get_serial_sequence('task', 'id'), {max(max_task_id, 1)}, true);")
                 )
     except Exception:
         pass
@@ -516,7 +583,6 @@ def generate_monthly_attendance_reports(year: int, month: int):
     detail_path = os.path.join(REPORTS_DIR, detail_filename)
     summary_path = os.path.join(REPORTS_DIR, summary_filename)
 
-    # DETAIL
     wb_detail = Workbook()
     ws_detail = wb_detail.active
     ws_detail.title = "Detail"
@@ -561,7 +627,6 @@ def generate_monthly_attendance_reports(year: int, month: int):
 
     wb_detail.save(detail_path)
 
-    # SUMMARY
     wb_summary = Workbook()
     ws_summary = wb_summary.active
     ws_summary.title = "Souhrn"
@@ -721,6 +786,143 @@ def download_report(filename):
         abort(404)
 
     return send_file(safe_path, as_attachment=True, download_name=os.path.basename(safe_path))
+
+
+# =====================
+# TASKS
+# =====================
+
+@app.route("/tasks")
+@login_required
+def tasks():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    tasks_data = Task.query.order_by(Task.admin_confirmed.asc(), Task.due_date.asc().nullslast(), Task.id.desc()).all()
+
+    user_ids = set()
+    for item in tasks_data:
+        if item.created_by_user_id:
+            user_ids.add(item.created_by_user_id)
+        if item.completed_by_user_id:
+            user_ids.add(item.completed_by_user_id)
+
+    users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
+    user_map = {u.id: u.username for u in users}
+
+    return render_template("tasks.html", tasks=tasks_data, user_map=user_map)
+
+
+@app.route("/tasks/create", methods=["POST"])
+@login_required
+def create_task():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    title = request.form.get("title", "").strip()
+    description = request.form.get("description", "").strip()
+    assigned_date = parse_date_yyyy_mm_dd(request.form.get("assigned_date", "").strip())
+    due_date = parse_date_yyyy_mm_dd(request.form.get("due_date", "").strip())
+    completion_text = request.form.get("completion_text", "").strip()
+
+    if not title:
+        flash("Vyplň název úkolu.", "error")
+        return redirect(url_for("tasks"))
+
+    status = "new"
+    completed_by_user_id = None
+    completed_at = None
+    admin_confirmed = False
+    admin_confirmed_at = None
+
+    if completion_text:
+        status = "submitted"
+        completed_by_user_id = current_user.id
+        completed_at = now_local()
+
+    task = Task(
+        title=title,
+        description=description,
+        assigned_date=assigned_date,
+        due_date=due_date,
+        completion_text=completion_text if completion_text else None,
+        status=status,
+        admin_confirmed=admin_confirmed,
+        created_by_user_id=current_user.id,
+        completed_by_user_id=completed_by_user_id,
+        created_at=now_local(),
+        updated_at=now_local(),
+        completed_at=completed_at,
+        admin_confirmed_at=admin_confirmed_at,
+    )
+
+    db.session.add(task)
+    db.session.commit()
+
+    flash("Úkol byl vytvořen.", "success")
+    return redirect(url_for("tasks"))
+
+
+@app.route("/tasks/complete/<int:task_id>", methods=["POST"])
+@login_required
+def complete_task(task_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    task = Task.query.get_or_404(task_id)
+
+    completion_text = request.form.get("completion_text", "").strip()
+    assigned_date = parse_date_yyyy_mm_dd(request.form.get("assigned_date", "").strip())
+    due_date = parse_date_yyyy_mm_dd(request.form.get("due_date", "").strip())
+
+    if not completion_text:
+        flash("Vyplň dokončení úkolu.", "error")
+        return redirect(url_for("tasks"))
+
+    task.assigned_date = assigned_date
+    task.due_date = due_date
+    task.completion_text = completion_text
+    task.status = "submitted"
+    task.admin_confirmed = False
+    task.completed_by_user_id = current_user.id
+    task.completed_at = now_local()
+    task.updated_at = now_local()
+    task.admin_confirmed_at = None
+
+    db.session.commit()
+    flash("Dokončení úkolu bylo uloženo.", "success")
+    return redirect(url_for("tasks"))
+
+
+@app.route("/tasks/approve/<int:task_id>", methods=["POST"])
+@login_required
+def approve_task(task_id):
+    if not admin_required():
+        return redirect(url_for("tasks"))
+
+    task = Task.query.get_or_404(task_id)
+    task.admin_confirmed = True
+    task.status = "approved"
+    task.admin_confirmed_at = now_local()
+    task.updated_at = now_local()
+
+    db.session.commit()
+    flash("Úkol byl potvrzen jako splněný.", "success")
+    return redirect(url_for("tasks"))
+
+
+@app.route("/tasks/delete/<int:task_id>", methods=["POST"])
+@login_required
+def delete_task(task_id):
+    if not admin_required():
+        return redirect(url_for("tasks"))
+
+    task = Task.query.get_or_404(task_id)
+    db.session.delete(task)
+    db.session.commit()
+
+    flash("Úkol byl smazán.", "success")
+    return redirect(url_for("tasks"))
 
 
 # =====================
@@ -1475,3 +1677,4 @@ def delete_user(user_id):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+templates/dashboard.html
