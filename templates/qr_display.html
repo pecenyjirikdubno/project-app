@@ -1,6 +1,128 @@
-login.html
-dashboard.html
-materials.html
-attendance.html
-users.html
-qr_display.html
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>QR terminál docházky</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="{{ refresh_after }}">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+            text-align: center;
+        }
+
+        .page {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 18px;
+            padding: 24px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+
+        #qrcode {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .hint {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 16px;
+        }
+
+        .small {
+            color: #64748b;
+            font-size: 14px;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+
+        .timer {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            background: #ecfdf5;
+            color: #166534;
+            font-weight: bold;
+        }
+
+        .logout {
+            margin-top: 20px;
+        }
+
+        .btn {
+            display: inline-block;
+            text-decoration: none;
+            text-align: center;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background: #64748b;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <div class="card">
+        <h1>JZ Elektro</h1>
+        <div class="subtitle">QR terminál docházky</div>
+
+        <div id="qrcode"></div>
+
+        <div class="hint">
+            Naskenujte tento QR kód pro zápis příchodu / odchodu
+        </div>
+
+        <div class="timer">
+            QR se obnoví za {{ refresh_after }} s
+        </div>
+
+        <div class="small">
+            1. sken dne = příchod<br>
+            2. sken dne = odchod
+        </div>
+
+        <div class="logout">
+            <a class="btn" href="{{ url_for('logout') }}">Odhlásit se</a>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+new QRCode(document.getElementById("qrcode"), {
+    text: {{ qr_value | tojson }},
+    width: 280,
+    height: 280
+});
+</script>
+</body>
+</html>
