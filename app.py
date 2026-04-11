@@ -30,6 +30,9 @@ from zoneinfo import ZoneInfo
 import io
 import json
 import os
+import time
+import hmac
+import hashlib
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "secret-key-change-this"
@@ -61,11 +64,15 @@ login_manager.login_view = "login"
 login_manager.login_message = "Nejdřív se prosím přihlas."
 
 # =====================
-# TIMEZONE + QR
+# TIMEZONE + DYNAMIC QR
 # =====================
 
 APP_TZ = ZoneInfo("Europe/Prague")
-VALID_ATTENDANCE_QR = "JZ-ELEKTRO-ATTENDANCE"
+
+QR_PREFIX = "JZQR1"
+QR_ROTATION_SECONDS = 30
+QR_ALLOWED_SLOT_SKEW = 1
+QR_SECRET = os.environ.get("QR_SECRET", "zmenit-v-production-na-dlouhy-tajny-klic")
 
 
 def now_local():
@@ -119,6 +126,57 @@ def parse_datetime_value(value: str):
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def current_qr_slot(ts=None):
+    if ts is None:
+        ts = time.time()
+    return int(ts // QR_ROTATION_SECONDS)
+
+
+def build_dynamic_qr_value(slot: int) -> str:
+    payload = f"{QR_PREFIX}|{slot}"
+    signature = hmac.new(
+        QR_SECRET.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()[:20]
+    return f"{QR_PREFIX}|{slot}|{signature}"
+
+
+def verify_dynamic_qr_value(value: str):
+    if not value:
+        return False, "Prázdný QR kód."
+
+    parts = value.strip().split("|")
+    if len(parts) != 3:
+        return False, "Neplatný QR kód."
+
+    prefix, slot_raw, signature = parts
+
+    if prefix != QR_PREFIX:
+        return False, "Neplatný QR kód."
+
+    if not slot_raw.isdigit():
+        return False, "Neplatný QR kód."
+
+    slot = int(slot_raw)
+    now_slot = current_qr_slot()
+
+    if abs(now_slot - slot) > QR_ALLOWED_SLOT_SKEW:
+        return False, "QR kód vypršel. Načtěte aktuální kód."
+
+    expected_payload = f"{QR_PREFIX}|{slot}"
+    expected_signature = hmac.new(
+        QR_SECRET.encode("utf-8"),
+        expected_payload.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()[:20]
+
+    if not hmac.compare_digest(signature, expected_signature):
+        return False, "Neplatný QR kód."
+
+    return True, None
 
 
 # =====================
@@ -202,10 +260,30 @@ def admin_required():
     return True
 
 
+def qr_terminal_required():
+    if current_user.role not in {"admin", "qr_terminal"}:
+        flash("Tato stránka je dostupná jen pro QR terminál.", "error")
+        return False
+    return True
+
+
+def user_app_access_required():
+    if current_user.role == "qr_terminal":
+        flash("Tento účet má přístup pouze k QR terminálu.", "error")
+        return False
+    return True
+
+
 def can_user_edit_attendance(record: Attendance) -> bool:
     if current_user.role == "admin":
         return True
     return record.user_id == current_user.id and record.work_date == today_local()
+
+
+def redirect_after_login():
+    if current_user.role == "qr_terminal":
+        return redirect(url_for("qr_display"))
+    return redirect(url_for("dashboard"))
 
 
 def export_backup_data():
@@ -390,7 +468,7 @@ def service_worker():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("dashboard"))
+        return redirect_after_login()
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -400,7 +478,7 @@ def login():
 
         if user and user.check_password(password):
             login_user(user)
-            return redirect(url_for("dashboard"))
+            return redirect_after_login()
 
         flash("Neplatné uživatelské jméno nebo heslo.", "error")
 
@@ -421,7 +499,30 @@ def logout():
 @app.route("/")
 @login_required
 def dashboard():
+    if current_user.role == "qr_terminal":
+        return redirect(url_for("qr_display"))
     return render_template("dashboard.html")
+
+
+@app.route("/qr-display")
+@login_required
+def qr_display():
+    if not qr_terminal_required():
+        return redirect(url_for("dashboard"))
+
+    slot = current_qr_slot()
+    qr_value = build_dynamic_qr_value(slot)
+
+    seconds_into_slot = int(time.time()) % QR_ROTATION_SECONDS
+    refresh_after = max(3, QR_ROTATION_SECONDS - seconds_into_slot + 1)
+
+    return render_template(
+        "qr_display.html",
+        qr_value=qr_value,
+        refresh_after=refresh_after,
+        refresh_ms=refresh_after * 1000,
+        qr_rotation_seconds=QR_ROTATION_SECONDS,
+    )
 
 
 # =====================
@@ -431,6 +532,9 @@ def dashboard():
 @app.route("/materials")
 @login_required
 def materials():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     jobs = Job.query.order_by(Job.id.desc()).all()
 
     for job in jobs:
@@ -446,6 +550,9 @@ def materials():
 @app.route("/create_job", methods=["POST"])
 @login_required
 def create_job():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     name = request.form.get("name", "").strip()
 
     if not name:
@@ -462,6 +569,9 @@ def create_job():
 @app.route("/add_row/<int:job_id>", methods=["POST"])
 @login_required
 def add_row(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     job = Job.query.get(job_id)
 
     if not job or job.closed:
@@ -487,6 +597,9 @@ def add_row(job_id):
 @app.route("/save/<int:job_id>", methods=["POST"])
 @login_required
 def save(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     job = Job.query.get(job_id)
 
     if not job or job.closed:
@@ -511,6 +624,9 @@ def save(job_id):
 @app.route("/close/<int:job_id>")
 @login_required
 def close_job(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     job = Job.query.get(job_id)
 
     if job and current_user.role == "admin":
@@ -523,6 +639,9 @@ def close_job(job_id):
 @app.route("/export/<int:job_id>")
 @login_required
 def export(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     rows = JobRow.query.filter_by(job_id=job_id).all()
 
     wb = Workbook()
@@ -569,6 +688,9 @@ def export(job_id):
 @app.route("/attendance")
 @login_required
 def attendance():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     selected_month = request.args.get("month")
 
     if selected_month:
@@ -625,13 +747,15 @@ def attendance():
         can_user_edit_attendance=can_user_edit_attendance,
         time_to_str=time_to_str,
         today_record=today_record,
-        valid_qr_value=VALID_ATTENDANCE_QR,
     )
 
 
 @app.route("/attendance/create_day", methods=["POST"])
 @login_required
 def create_attendance_day():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     work_date_raw = request.form.get("work_date", "").strip()
 
     if not work_date_raw:
@@ -668,13 +792,20 @@ def create_attendance_day():
 @app.route("/attendance/scan-qr", methods=["POST"])
 @login_required
 def attendance_scan_qr():
+    if current_user.role == "qr_terminal":
+        return jsonify({
+            "success": False,
+            "message": "Terminálový účet nemůže zapisovat docházku.",
+        }), 403
+
     payload = request.get_json(silent=True) or {}
     qr_value = (payload.get("qr_value") or "").strip()
 
-    if qr_value != VALID_ATTENDANCE_QR:
+    is_valid, error_message = verify_dynamic_qr_value(qr_value)
+    if not is_valid:
         return jsonify({
             "success": False,
-            "message": "Neplatný QR kód.",
+            "message": error_message,
         }), 400
 
     work_date = today_local()
@@ -743,6 +874,9 @@ def attendance_scan_qr():
 @app.route("/attendance/user_update/<int:record_id>", methods=["POST"])
 @login_required
 def attendance_user_update(record_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
     record = Attendance.query.get_or_404(record_id)
 
     if not can_user_edit_attendance(record):
@@ -1080,8 +1214,7 @@ def admin_db_restore():
 @app.route("/users")
 @login_required
 def users():
-    if current_user.role != "admin":
-        flash("Do správy uživatelů má přístup jen admin.", "error")
+    if not admin_required():
         return redirect(url_for("dashboard"))
 
     all_users = User.query.order_by(User.id.asc()).all()
@@ -1091,8 +1224,7 @@ def users():
 @app.route("/add_user", methods=["POST"])
 @login_required
 def add_user():
-    if current_user.role != "admin":
-        flash("Do správy uživatelů má přístup jen admin.", "error")
+    if not admin_required():
         return redirect(url_for("dashboard"))
 
     username = request.form.get("username", "").strip()
@@ -1103,7 +1235,7 @@ def add_user():
         flash("Vyplň uživatelské jméno i heslo.", "error")
         return redirect(url_for("users"))
 
-    if role not in {"admin", "user"}:
+    if role not in {"admin", "user", "qr_terminal"}:
         role = "user"
 
     if User.query.filter_by(username=username).first():
@@ -1123,8 +1255,7 @@ def add_user():
 @app.route("/delete_user/<int:user_id>")
 @login_required
 def delete_user(user_id):
-    if current_user.role != "admin":
-        flash("Do správy uživatelů má přístup jen admin.", "error")
+    if not admin_required():
         return redirect(url_for("dashboard"))
 
     user = User.query.get_or_404(user_id)
