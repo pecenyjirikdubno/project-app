@@ -162,6 +162,11 @@
             color: #166534;
         }
 
+        .badge-terminal {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
         .protected {
             font-size: 13px;
             color: #64748b;
@@ -223,6 +228,7 @@
                     <select name="role">
                         <option value="user">user</option>
                         <option value="admin">admin</option>
+                        <option value="qr_terminal">qr_terminal</option>
                     </select>
                 </div>
             </div>
@@ -242,6 +248,8 @@
 
                 {% if user.role == 'admin' %}
                     <span class="badge badge-admin">admin</span>
+                {% elif user.role == 'qr_terminal' %}
+                    <span class="badge badge-terminal">qr_terminal</span>
                 {% else %}
                     <span class="badge badge-user">user</span>
                 {% endif %}
@@ -267,3 +275,4 @@ if ("serviceWorker" in navigator) {
 </script>
 </body>
 </html>
+Co teď prakticky otestovat
