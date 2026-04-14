@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Projekty</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f766e">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        .page {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 18px;
+            font-size: 28px;
+        }
+
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 0;
+            margin-bottom: 14px;
+            color: #0f172a;
+        }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #475569;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 16px;
+            background: #fff;
+        }
+
+        .btn {
+            display: inline-block;
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 8px;
+        }
+
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
+        .project-list {
+            display: grid;
+            gap: 14px;
+        }
+
+        .project-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px;
+            background: #fafafa;
+        }
+
+        .project-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 10px;
+        }
+
+        .project-meta {
+            display: grid;
+            gap: 6px;
+            margin-bottom: 12px;
+            color: #334155;
+            font-size: 14px;
+        }
+
+        .logs {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #ddd;
+        }
+
+        .log-row {
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            background: #fff;
+            margin-bottom: 8px;
+        }
+
+        .muted {
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        @media (min-width: 700px) {
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .form-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <h1>Projekty</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <h2 class="section-title">Nový projekt</h2>
+
+        <form method="POST" action="{{ url_for('create_project') }}">
+            <div class="field-group">
+                <label>Název projektu</label>
+                <input type="text" name="project_name" required>
+            </div>
+
+            <div class="form-grid">
+                <div class="field-group">
+                    <label>Datum objednávky</label>
+                    <input type="date" name="order_date">
+                </div>
+
+                <div class="field-group">
+                    <label>Datum změny stavu</label>
+                    <input type="date" name="status_change_date">
+                </div>
+
+                <div class="field-group">
+                    <label>Objednatel</label>
+                    <input type="text" name="customer">
+                </div>
+
+                <div class="field-group">
+                    <label>Investor</label>
+                    <input type="text" name="investor">
+                </div>
+
+                <div class="field-group">
+                    <label>Stav</label>
+                    <select name="status">
+                        {% for status in status_options %}
+                        <option value="{{ status }}">{{ status }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Uložit projekt</button>
+        </form>
+    </div>
+
+    <div class="project-list">
+        {% for project in projects %}
+        <div class="project-card">
+            <div class="project-title">{{ project.project_name }}</div>
+
+            <div class="project-meta">
+                <div><strong>Datum objednávky:</strong> {{ project.order_date or '—' }}</div>
+                <div><strong>Objednatel:</strong> {{ project.customer or '—' }}</div>
+                <div><strong>Investor:</strong> {{ project.investor or '—' }}</div>
+                <div><strong>Datum změny stavu:</strong> {{ project.status_change_date or '—' }}</div>
+                <div><strong>Stav:</strong> {{ project.status }}</div>
+                <div><strong>Celkem odpracovaných hodin:</strong> {{ project.total_hours }}</div>
+            </div>
+
+            <form method="POST" action="{{ url_for('update_project', project_id=project.id) }}">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Název projektu</label>
+                        <input type="text" name="project_name" value="{{ project.project_name }}" required>
+                    </div>
+
+                    <div class="field-group">
+                        <label>Datum objednávky</label>
+                        <input type="date" name="order_date" value="{{ project.order_date or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Objednatel</label>
+                        <input type="text" name="customer" value="{{ project.customer or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Investor</label>
+                        <input type="text" name="investor" value="{{ project.investor or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Datum změny stavu</label>
+                        <input type="date" name="status_change_date" value="{{ project.status_change_date or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Stav</label>
+                        <select name="status">
+                            {% for status in status_options %}
+                            <option value="{{ status }}" {% if project.status == status %}selected{% endif %}>{{ status }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" type="submit">Uložit změny projektu</button>
+            </form>
+
+            <form method="POST" action="{{ url_for('delete_project', project_id=project.id) }}"
+                  onsubmit="return confirm('Opravdu chcete smazat celý projekt včetně odpracovaných hodin?');">
+                <button class="btn btn-danger" type="submit">Smazat projekt</button>
+            </form>
+
+            <div class="logs">
+                <h3 class="section-title" style="font-size:18px;">Přidat odpracované hodiny</h3>
+
+                <form method="POST" action="{{ url_for('add_project_log', project_id=project.id) }}">
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label>Datum</label>
+                            <input type="date" name="work_date">
+                        </div>
+
+                        <div class="field-group">
+                            <label>Počet odpracovaných hodin</label>
+                            <input type="number" step="0.25" min="0" name="worked_hours" required>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-success" type="submit">Přidat hodiny</button>
+                </form>
+
+                <h3 class="section-title" style="font-size:18px; margin-top:18px;">Seznam odpracovaných hodin</h3>
+
+                {% if project.logs %}
+                    {% for log in project.logs %}
+                    <div class="log-row">
+                        <div><strong>Datum:</strong> {{ log.work_date or '—' }}</div>
+                        <div><strong>Hodiny:</strong> {{ log.worked_hours }}</div>
+
+                        <form method="POST" action="{{ url_for('delete_project_log', log_id=log.id) }}"
+                              onsubmit="return confirm('Opravdu chcete smazat tento řádek hodin?');">
+                            <button class="btn btn-danger" type="submit">Smazat řádek hodin</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="muted">Zatím nejsou zadané žádné hodiny.</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("/service-worker.js");
+  });
+}
+</script>
+</body>
+</html>
