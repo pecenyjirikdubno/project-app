@@ -79,6 +79,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
+PROJECT_STATUS_OPTIONS = [
+    "zahájena práce",
+    "rozpracováno",
+    "k autorizaci",
+    "autorizováno",
+    "předáno objednateli",
+]
+
 
 def now_local():
     return datetime.now(APP_TZ)
@@ -269,6 +277,26 @@ class Task(db.Model):
     admin_confirmed_at = db.Column(db.DateTime, nullable=True)
 
 
+class Project(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_name = db.Column(db.String(200), nullable=False)
+    order_date = db.Column(db.Date, nullable=True)
+    customer = db.Column(db.String(200), nullable=True)
+    investor = db.Column(db.String(200), nullable=True)
+    status_change_date = db.Column(db.Date, nullable=True)
+    status = db.Column(db.String(50), nullable=False, default="zahájena práce")
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+
+
+class ProjectWorkLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=False)
+    work_date = db.Column(db.Date, nullable=True)
+    worked_hours = db.Column(db.Float, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -340,12 +368,19 @@ def set_setting(key: str, value: str):
     db.session.commit()
 
 
+def project_total_hours(project_id: int) -> float:
+    logs = ProjectWorkLog.query.filter_by(project_id=project_id).all()
+    return round(sum((item.worked_hours or 0) for item in logs), 2)
+
+
 def export_backup_data():
     users = User.query.order_by(User.id.asc()).all()
     jobs = Job.query.order_by(Job.id.asc()).all()
     job_rows = JobRow.query.order_by(JobRow.id.asc()).all()
     attendance = Attendance.query.order_by(Attendance.id.asc()).all()
     tasks = Task.query.order_by(Task.id.asc()).all()
+    projects = Project.query.order_by(Project.id.asc()).all()
+    project_logs = ProjectWorkLog.query.order_by(ProjectWorkLog.id.asc()).all()
 
     data = {
         "meta": {
@@ -417,6 +452,30 @@ def export_backup_data():
             }
             for t in tasks
         ],
+        "projects": [
+            {
+                "id": p.id,
+                "project_name": p.project_name,
+                "order_date": p.order_date.isoformat() if p.order_date else None,
+                "customer": p.customer,
+                "investor": p.investor,
+                "status_change_date": p.status_change_date.isoformat() if p.status_change_date else None,
+                "status": p.status,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            }
+            for p in projects
+        ],
+        "project_logs": [
+            {
+                "id": l.id,
+                "project_id": l.project_id,
+                "work_date": l.work_date.isoformat() if l.work_date else None,
+                "worked_hours": l.worked_hours,
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+            }
+            for l in project_logs
+        ],
     }
     return data
 
@@ -432,6 +491,8 @@ def restore_backup_data(data):
     db.session.remove()
 
     Attendance.query.delete()
+    ProjectWorkLog.query.delete()
+    Project.query.delete()
     Task.query.delete()
     JobRow.query.delete()
     Job.query.delete()
@@ -443,6 +504,8 @@ def restore_backup_data(data):
     max_job_row_id = 0
     max_attendance_id = 0
     max_task_id = 0
+    max_project_id = 0
+    max_project_log_id = 0
 
     for item in data.get("users", []):
         user = User(
@@ -521,27 +584,45 @@ def restore_backup_data(data):
         db.session.add(task)
         max_task_id = max(max_task_id, item["id"])
 
+    for item in data.get("projects", []):
+        project = Project(
+            id=item["id"],
+            project_name=item["project_name"],
+            order_date=parse_date_yyyy_mm_dd(item.get("order_date")),
+            customer=item.get("customer"),
+            investor=item.get("investor"),
+            status_change_date=parse_date_yyyy_mm_dd(item.get("status_change_date")),
+            status=item.get("status", "zahájena práce"),
+            created_at=parse_datetime_value(item.get("created_at")) or now_local(),
+            updated_at=parse_datetime_value(item.get("updated_at")) or now_local(),
+        )
+        db.session.add(project)
+        max_project_id = max(max_project_id, item["id"])
+
+    for item in data.get("project_logs", []):
+        log = ProjectWorkLog(
+            id=item["id"],
+            project_id=item["project_id"],
+            work_date=parse_date_yyyy_mm_dd(item.get("work_date")),
+            worked_hours=item.get("worked_hours") or 0,
+            created_at=parse_datetime_value(item.get("created_at")) or now_local(),
+        )
+        db.session.add(log)
+        max_project_log_id = max(max_project_log_id, item["id"])
+
     db.session.commit()
 
     try:
         engine_name = db.engine.url.drivername
         if "postgresql" in engine_name:
             with db.engine.begin() as conn:
-                conn.execute(
-                    db.text(f"SELECT setval(pg_get_serial_sequence('user', 'id'), {max(max_user_id, 1)}, true);")
-                )
-                conn.execute(
-                    db.text(f"SELECT setval(pg_get_serial_sequence('job', 'id'), {max(max_job_id, 1)}, true);")
-                )
-                conn.execute(
-                    db.text(f"SELECT setval(pg_get_serial_sequence('job_row', 'id'), {max(max_job_row_id, 1)}, true);")
-                )
-                conn.execute(
-                    db.text(f"SELECT setval(pg_get_serial_sequence('attendance', 'id'), {max(max_attendance_id, 1)}, true);")
-                )
-                conn.execute(
-                    db.text(f"SELECT setval(pg_get_serial_sequence('task', 'id'), {max(max_task_id, 1)}, true);")
-                )
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('user', 'id'), {max(max_user_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('job', 'id'), {max(max_job_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('job_row', 'id'), {max(max_job_row_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('attendance', 'id'), {max(max_attendance_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('task', 'id'), {max(max_task_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('project', 'id'), {max(max_project_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('project_work_log', 'id'), {max(max_project_log_id, 1)}, true);"))
     except Exception:
         pass
 
@@ -786,6 +867,142 @@ def download_report(filename):
         abort(404)
 
     return send_file(safe_path, as_attachment=True, download_name=os.path.basename(safe_path))
+
+
+# =====================
+# PROJECTS
+# =====================
+
+@app.route("/projects")
+@login_required
+def projects():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    projects_data = Project.query.order_by(Project.id.desc()).all()
+    for item in projects_data:
+        item.logs = ProjectWorkLog.query.filter_by(project_id=item.id).order_by(ProjectWorkLog.work_date.desc(), ProjectWorkLog.id.desc()).all()
+        item.total_hours = project_total_hours(item.id)
+
+    return render_template(
+        "projects.html",
+        projects=projects_data,
+        status_options=PROJECT_STATUS_OPTIONS,
+    )
+
+
+@app.route("/projects/create", methods=["POST"])
+@login_required
+def create_project():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    project_name = request.form.get("project_name", "").strip()
+    order_date = parse_date_yyyy_mm_dd(request.form.get("order_date", "").strip())
+    customer = request.form.get("customer", "").strip()
+    investor = request.form.get("investor", "").strip()
+    status_change_date = parse_date_yyyy_mm_dd(request.form.get("status_change_date", "").strip())
+    status = request.form.get("status", "").strip()
+
+    if not project_name:
+        flash("Vyplň název projektu.", "error")
+        return redirect(url_for("projects"))
+
+    if status not in PROJECT_STATUS_OPTIONS:
+        status = PROJECT_STATUS_OPTIONS[0]
+
+    project = Project(
+        project_name=project_name,
+        order_date=order_date,
+        customer=customer,
+        investor=investor,
+        status_change_date=status_change_date,
+        status=status,
+        created_at=now_local(),
+        updated_at=now_local(),
+    )
+    db.session.add(project)
+    db.session.commit()
+
+    flash("Projekt byl vytvořen.", "success")
+    return redirect(url_for("projects"))
+
+
+@app.route("/projects/update/<int:project_id>", methods=["POST"])
+@login_required
+def update_project(project_id):
+    if not admin_required():
+        return redirect(url_for("projects"))
+
+    project = Project.query.get_or_404(project_id)
+
+    project.project_name = request.form.get("project_name", "").strip()
+    project.order_date = parse_date_yyyy_mm_dd(request.form.get("order_date", "").strip())
+    project.customer = request.form.get("customer", "").strip()
+    project.investor = request.form.get("investor", "").strip()
+    project.status_change_date = parse_date_yyyy_mm_dd(request.form.get("status_change_date", "").strip())
+
+    status = request.form.get("status", "").strip()
+    if status in PROJECT_STATUS_OPTIONS:
+        project.status = status
+
+    project.updated_at = now_local()
+    db.session.commit()
+
+    flash("Projekt byl upraven.", "success")
+    return redirect(url_for("projects"))
+
+
+@app.route("/projects/add-log/<int:project_id>", methods=["POST"])
+@login_required
+def add_project_log(project_id):
+    if not admin_required():
+        return redirect(url_for("projects"))
+
+    project = Project.query.get_or_404(project_id)
+    work_date = parse_date_yyyy_mm_dd(request.form.get("work_date", "").strip())
+    worked_hours = float(request.form.get("worked_hours") or 0)
+
+    log = ProjectWorkLog(
+        project_id=project.id,
+        work_date=work_date,
+        worked_hours=worked_hours,
+        created_at=now_local(),
+    )
+    db.session.add(log)
+    db.session.commit()
+
+    flash("Řádek práce byl přidán.", "success")
+    return redirect(url_for("projects"))
+
+
+@app.route("/projects/delete-log/<int:log_id>", methods=["POST"])
+@login_required
+def delete_project_log(log_id):
+    if not admin_required():
+        return redirect(url_for("projects"))
+
+    log = ProjectWorkLog.query.get_or_404(log_id)
+    db.session.delete(log)
+    db.session.commit()
+
+    flash("Řádek práce byl smazán.", "success")
+    return redirect(url_for("projects"))
+
+
+@app.route("/projects/delete/<int:project_id>", methods=["POST"])
+@login_required
+def delete_project(project_id):
+    if not admin_required():
+        return redirect(url_for("projects"))
+
+    project = Project.query.get_or_404(project_id)
+    ProjectWorkLog.query.filter_by(project_id=project.id).delete()
+    db.session.delete(project)
+    db.session.commit()
+
+    flash("Projekt byl smazán.", "success")
+    return redirect(url_for("projects"))
 
 
 # =====================
