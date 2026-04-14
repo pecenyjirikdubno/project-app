@@ -27,7 +27,7 @@
         }
 
         .page {
-            max-width: 720px;
+            max-width: 900px;
             margin: 0 auto;
             padding-bottom: 70px;
         }
@@ -71,17 +71,10 @@
             color: white;
         }
 
-        .materials {
-            background: #2563eb;
-        }
-
-        .attendance {
-            background: #16a34a;
-        }
-
-        .tasks {
-            background: #7c3aed;
-        }
+        .materials { background: #2563eb; }
+        .attendance { background: #16a34a; }
+        .tasks { background: #7c3aed; }
+        .projects { background: #0f766e; }
 
         .secondary-actions {
             display: grid;
@@ -133,13 +126,8 @@
             background: #fff;
         }
 
-        .backup-btn {
-            background: #0f766e;
-        }
-
-        .restore-btn {
-            background: #dc2626;
-        }
+        .backup-btn { background: #0f766e; }
+        .restore-btn { background: #dc2626; }
 
         .warning {
             margin-top: 10px;
@@ -204,7 +192,7 @@
 
         @media (min-width: 700px) {
             .menu-grid {
-                grid-template-columns: 1fr 1fr 1fr;
+                grid-template-columns: repeat(4, 1fr);
             }
 
             .secondary-actions {
@@ -233,6 +221,9 @@
             <a class="big-btn materials" href="{{ url_for('materials') }}">Materiál</a>
             <a class="big-btn attendance" href="{{ url_for('attendance') }}">Docházka</a>
             <a class="big-btn tasks" href="{{ url_for('tasks') }}">Úkoly</a>
+            {% if current_user.role == 'admin' %}
+            <a class="big-btn projects" href="{{ url_for('projects') }}">Projekty</a>
+            {% endif %}
         </div>
 
         <div class="secondary-actions">
