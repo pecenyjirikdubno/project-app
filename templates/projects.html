@@ -94,6 +94,7 @@
         .btn-success { background: #16a34a; color: white; }
         .btn-secondary { background: #64748b; color: white; }
         .btn-danger { background: #dc2626; color: white; }
+        .btn-export { background: #7c3aed; color: white; }
 
         .flash {
             background: #ecfeff;
@@ -149,6 +150,30 @@
             font-size: 13px;
         }
 
+        .summary-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .summary-box {
+            padding: 14px;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+
+        .summary-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0f172a;
+        }
+
+        .summary-label {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
         @media (min-width: 700px) {
             .topbar {
                 grid-template-columns: 1fr 1fr;
@@ -158,6 +183,10 @@
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 gap: 12px;
+            }
+
+            .summary-grid {
+                grid-template-columns: repeat(3, 1fr);
             }
         }
     </style>
@@ -179,6 +208,39 @@
         {% endfor %}
       {% endif %}
     {% endwith %}
+
+    <div class="card">
+        <h2 class="section-title">Přehled vytížení</h2>
+
+        <div class="summary-grid">
+            <div class="summary-box">
+                <div class="summary-value">{{ projects_summary.total_projects }}</div>
+                <div class="summary-label">Celkem projektů</div>
+            </div>
+
+            <div class="summary-box">
+                <div class="summary-value">{{ projects_summary.total_hours }}</div>
+                <div class="summary-label">Celkem odpracovaných hodin</div>
+            </div>
+
+            <div class="summary-box">
+                <div class="summary-value">{{ projects_summary.hours_by_status.get('rozpracováno', 0) }}</div>
+                <div class="summary-label">Hodiny ve stavu „rozpracováno“</div>
+            </div>
+        </div>
+
+        <div class="summary-grid" style="margin-top:12px;">
+            {% for status, hours in projects_summary.hours_by_status.items() %}
+            <div class="summary-box">
+                <div class="summary-value">{{ hours }}</div>
+                <div class="summary-label">{{ status }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <a class="btn btn-export" href="{{ url_for('export_projects_excel') }}">Export projektů do Excelu</a>
+        <a class="btn btn-export" href="{{ url_for('export_projects_workload_excel') }}">Export vytížení do Excelu</a>
+    </div>
 
     <div class="card">
         <h2 class="section-title">Nový projekt</h2>
