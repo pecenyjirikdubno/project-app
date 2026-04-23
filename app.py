@@ -373,6 +373,24 @@ def project_total_hours(project_id: int) -> float:
     return round(sum((item.worked_hours or 0) for item in logs), 2)
 
 
+def get_projects_summary(projects_data):
+    total_projects = len(projects_data)
+    total_hours = round(sum((item.total_hours or 0) for item in projects_data), 2)
+
+    hours_by_status = {}
+    for status in PROJECT_STATUS_OPTIONS:
+        hours_by_status[status] = round(
+            sum((item.total_hours or 0) for item in projects_data if item.status == status),
+            2
+        )
+
+    return {
+        "total_projects": total_projects,
+        "total_hours": total_hours,
+        "hours_by_status": hours_by_status,
+    }
+
+
 def export_backup_data():
     users = User.query.order_by(User.id.asc()).all()
     jobs = Job.query.order_by(Job.id.asc()).all()
@@ -881,13 +899,145 @@ def projects():
 
     projects_data = Project.query.order_by(Project.id.desc()).all()
     for item in projects_data:
-        item.logs = ProjectWorkLog.query.filter_by(project_id=item.id).order_by(ProjectWorkLog.work_date.desc(), ProjectWorkLog.id.desc()).all()
+        item.logs = ProjectWorkLog.query.filter_by(project_id=item.id).order_by(
+            ProjectWorkLog.work_date.desc(),
+            ProjectWorkLog.id.desc()
+        ).all()
         item.total_hours = project_total_hours(item.id)
+
+    projects_summary = get_projects_summary(projects_data)
 
     return render_template(
         "projects.html",
         projects=projects_data,
         status_options=PROJECT_STATUS_OPTIONS,
+        projects_summary=projects_summary,
+    )
+
+
+@app.route("/projects/export")
+@login_required
+def export_projects_excel():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    projects_data = Project.query.order_by(Project.id.desc()).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Projekty"
+
+    ws.append([
+        "Název projektu",
+        "Datum objednávky",
+        "Objednatel",
+        "Investor",
+        "Datum změny stavu",
+        "Stav",
+        "Celkem hodin",
+    ])
+
+    for project in projects_data:
+        ws.append([
+            project.project_name,
+            project.order_date.isoformat() if project.order_date else "",
+            project.customer or "",
+            project.investor or "",
+            project.status_change_date.isoformat() if project.status_change_date else "",
+            project.status,
+            project_total_hours(project.id),
+        ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"projekty_{today_local().isoformat()}.xlsx"
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/projects/workload-export")
+@login_required
+def export_projects_workload_excel():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    projects_data = Project.query.order_by(Project.id.desc()).all()
+
+    wb = Workbook()
+
+    # sheet 1 - souhrn
+    ws_summary = wb.active
+    ws_summary.title = "Vytizeni souhrn"
+
+    ws_summary.append([
+        "Název projektu",
+        "Stav",
+        "Celkem hodin",
+    ])
+
+    for project in projects_data:
+        ws_summary.append([
+            project.project_name,
+            project.status,
+            project_total_hours(project.id),
+        ])
+
+    # sheet 2 - detail
+    ws_detail = wb.create_sheet("Vytizeni detail")
+    ws_detail.append([
+        "Název projektu",
+        "Datum",
+        "Počet hodin",
+    ])
+
+    logs = ProjectWorkLog.query.order_by(ProjectWorkLog.work_date.asc(), ProjectWorkLog.id.asc()).all()
+    project_name_map = {p.id: p.project_name for p in projects_data}
+
+    for log in logs:
+        ws_detail.append([
+            project_name_map.get(log.project_id, ""),
+            log.work_date.isoformat() if log.work_date else "",
+            log.worked_hours,
+        ])
+
+    # sheet 3 - stavy
+    ws_status = wb.create_sheet("Hodiny podle stavu")
+    ws_status.append([
+        "Stav",
+        "Celkem hodin",
+    ])
+
+    summary = get_projects_summary([
+        type("ProjectSummary", (), {
+            "status": p.status,
+            "total_hours": project_total_hours(p.id)
+        }) for p in projects_data
+    ])
+
+    for status in PROJECT_STATUS_OPTIONS:
+        ws_status.append([
+            status,
+            summary["hours_by_status"].get(status, 0),
+        ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"vytizeni_projektu_{today_local().isoformat()}.xlsx"
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 
