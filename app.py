@@ -301,7 +301,28 @@ class ProjectWorkLog(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+class WorkTrip(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
 
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    start_odometer = db.Column(db.Float, nullable=False)
+    end_odometer = db.Column(db.Float, nullable=True)
+
+    start_time = db.Column(db.DateTime, nullable=False)
+    end_time = db.Column(db.DateTime, nullable=True)
+
+    start_lat = db.Column(db.Float, nullable=False)
+    start_lng = db.Column(db.Float, nullable=False)
+
+    end_lat = db.Column(db.Float, nullable=True)
+    end_lng = db.Column(db.Float, nullable=True)
+
+    status = db.Column(db.String(30), nullable=False, default="open")
+
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    
 # =====================
 # INIT DB
 # =====================
@@ -1154,7 +1175,195 @@ def delete_project(project_id):
     flash("Projekt byl smazán.", "success")
     return redirect(url_for("projects"))
 
+# =====================
+# PRACOVNÍ CESTY
+# =====================
 
+@app.route("/work-trips")
+@login_required
+def work_trips():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    if current_user.role == "admin":
+        trips = WorkTrip.query.order_by(WorkTrip.id.desc()).all()
+    else:
+        trips = WorkTrip.query.filter_by(user_id=current_user.id).order_by(WorkTrip.id.desc()).all()
+
+    user_ids = {trip.user_id for trip in trips}
+    users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
+    user_map = {u.id: u.username for u in users}
+
+    open_trip = WorkTrip.query.filter_by(
+        user_id=current_user.id,
+        status="open"
+    ).first()
+
+    return render_template(
+        "work_trips.html",
+        trips=trips,
+        user_map=user_map,
+        open_trip=open_trip,
+        datetime_to_str=datetime_to_str,
+    )
+
+
+@app.route("/work-trips/start", methods=["POST"])
+@login_required
+def start_work_trip():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    existing = WorkTrip.query.filter_by(
+        user_id=current_user.id,
+        status="open"
+    ).first()
+
+    if existing:
+        flash("Už máš jednu rozpracovanou pracovní cestu.", "error")
+        return redirect(url_for("work_trips"))
+
+    try:
+        start_odometer = float(request.form.get("start_odometer") or 0)
+        start_lat = float(request.form.get("start_lat") or "")
+        start_lng = float(request.form.get("start_lng") or "")
+    except ValueError:
+        flash("Chybí tachometr nebo GPS poloha.", "error")
+        return redirect(url_for("work_trips"))
+
+    trip = WorkTrip(
+        user_id=current_user.id,
+        start_odometer=start_odometer,
+        start_time=now_local(),
+        start_lat=start_lat,
+        start_lng=start_lng,
+        status="open",
+        created_at=now_local(),
+        updated_at=now_local(),
+    )
+
+    db.session.add(trip)
+    db.session.commit()
+
+    flash("Pracovní cesta byla zahájena.", "success")
+    return redirect(url_for("work_trips"))
+
+
+@app.route("/work-trips/end/<int:trip_id>", methods=["POST"])
+@login_required
+def end_work_trip(trip_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    trip = WorkTrip.query.get_or_404(trip_id)
+
+    if current_user.role != "admin" and trip.user_id != current_user.id:
+        flash("Nemáš oprávnění upravit tuto cestu.", "error")
+        return redirect(url_for("work_trips"))
+
+    if trip.status != "open":
+        flash("Tato pracovní cesta už je ukončena.", "error")
+        return redirect(url_for("work_trips"))
+
+    try:
+        end_odometer = float(request.form.get("end_odometer") or 0)
+        end_lat = float(request.form.get("end_lat") or "")
+        end_lng = float(request.form.get("end_lng") or "")
+    except ValueError:
+        flash("Chybí konečný tachometr nebo GPS poloha.", "error")
+        return redirect(url_for("work_trips"))
+
+    if end_odometer < trip.start_odometer:
+        flash("Konečný stav tachometru nesmí být menší než počáteční.", "error")
+        return redirect(url_for("work_trips"))
+
+    trip.end_odometer = end_odometer
+    trip.end_time = now_local()
+    trip.end_lat = end_lat
+    trip.end_lng = end_lng
+    trip.status = "closed"
+    trip.updated_at = now_local()
+
+    db.session.commit()
+
+    flash("Pracovní cesta byla ukončena.", "success")
+    return redirect(url_for("work_trips"))
+
+
+@app.route("/work-trips/delete/<int:trip_id>", methods=["POST"])
+@login_required
+def delete_work_trip(trip_id):
+    if not admin_required():
+        return redirect(url_for("work_trips"))
+
+    trip = WorkTrip.query.get_or_404(trip_id)
+    db.session.delete(trip)
+    db.session.commit()
+
+    flash("Pracovní cesta byla smazána.", "success")
+    return redirect(url_for("work_trips"))
+
+
+@app.route("/work-trips/export")
+@login_required
+def export_work_trips_excel():
+    if not admin_required():
+        return redirect(url_for("dashboard"))
+
+    trips = WorkTrip.query.order_by(WorkTrip.id.desc()).all()
+
+    user_ids = {trip.user_id for trip in trips}
+    users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
+    user_map = {u.id: u.username for u in users}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pracovni cesty"
+
+    ws.append([
+        "Uživatel",
+        "Počáteční tachometr",
+        "Konečný tachometr",
+        "Ujeto km",
+        "Začátek",
+        "Konec",
+        "Start GPS lat",
+        "Start GPS lng",
+        "Konec GPS lat",
+        "Konec GPS lng",
+        "Stav",
+    ])
+
+    for trip in trips:
+        distance = ""
+        if trip.end_odometer is not None:
+            distance = round((trip.end_odometer or 0) - (trip.start_odometer or 0), 2)
+
+        ws.append([
+            user_map.get(trip.user_id, ""),
+            trip.start_odometer,
+            trip.end_odometer,
+            distance,
+            datetime_to_str(trip.start_time),
+            datetime_to_str(trip.end_time),
+            trip.start_lat,
+            trip.start_lng,
+            trip.end_lat,
+            trip.end_lng,
+            trip.status,
+        ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"pracovni_cesty_{today_local().isoformat()}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    
 # =====================
 # TASKS
 # =====================
