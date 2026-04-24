@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Pracovní cesty</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        .page {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            font-size: 28px;
+        }
+
+        .topbar {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #475569;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        .btn {
+            display: inline-block;
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            margin-top: 8px;
+        }
+
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-export { background: #7c3aed; color: white; }
+
+        .flash {
+            background: #ecfeff;
+            color: #155e75;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
+        .trip-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px;
+            background: #fafafa;
+            margin-bottom: 12px;
+        }
+
+        .trip-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0f172a;
+            margin-bottom: 8px;
+        }
+
+        .trip-meta {
+            display: grid;
+            gap: 6px;
+            font-size: 14px;
+            color: #334155;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .badge-open {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-closed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .warning {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        @media (min-width: 700px) {
+            .topbar {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .form-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }
+
+            .trip-meta {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <h1>Pracovní cesty</h1>
+
+    <div class="topbar">
+        <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% if current_user.role == 'admin' %}
+    <div class="card">
+        <a class="btn btn-export" href="{{ url_for('export_work_trips_excel') }}">Export pracovních cest do Excelu</a>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        {% if open_trip %}
+            <h2>Ukončit pracovní cestu</h2>
+
+            <div class="warning">
+                Máš rozpracovanou pracovní cestu. Pro ukončení zadej konečný stav tachometru.
+                Datum, čas a GPS se uloží automaticky.
+            </div>
+
+            <form method="POST" action="{{ url_for('end_work_trip', trip_id=open_trip.id) }}" onsubmit="return fillEndGps(this);">
+                <div class="field-group">
+                    <label>Konečný stav tachometru</label>
+                    <input type="number" step="0.1" min="0" name="end_odometer" required>
+                </div>
+
+                <input type="hidden" name="end_lat">
+                <input type="hidden" name="end_lng">
+
+                <button class="btn btn-success" type="submit">Ukončit cestu</button>
+            </form>
+        {% else %}
+            <h2>Zahájit pracovní cestu</h2>
+
+            <div class="warning">
+                Po stisku tlačítka bude vyžádána GPS poloha telefonu. Bez povolení polohy nepůjde cestu uložit.
+            </div>
+
+            <form method="POST" action="{{ url_for('start_work_trip') }}" onsubmit="return fillStartGps(this);">
+                <div class="field-group">
+                    <label>Počáteční stav tachometru</label>
+                    <input type="number" step="0.1" min="0" name="start_odometer" required>
+                </div>
+
+                <input type="hidden" name="start_lat">
+                <input type="hidden" name="start_lng">
+
+                <button class="btn btn-primary" type="submit">Zahájit cestu</button>
+            </form>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Seznam pracovních cest</h2>
+
+        {% for trip in trips %}
+        <div class="trip-card">
+            {% if trip.status == 'open' %}
+                <span class="badge badge-open">Rozpracovaná</span>
+            {% else %}
+                <span class="badge badge-closed">Dokončená</span>
+            {% endif %}
+
+            <div class="trip-title">
+                {{ user_map.get(trip.user_id, '') }}
+            </div>
+
+            <div class="trip-meta">
+                <div><strong>Počáteční tachometr:</strong> {{ trip.start_odometer }}</div>
+                <div><strong>Konečný tachometr:</strong> {{ trip.end_odometer if trip.end_odometer is not none else '—' }}</div>
+
+                <div>
+                    <strong>Ujeto km:</strong>
+                    {% if trip.end_odometer is not none %}
+                        {{ (trip.end_odometer - trip.start_odometer)|round(2) }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </div>
+
+                <div><strong>Začátek:</strong> {{ datetime_to_str(trip.start_time) }}</div>
+                <div><strong>Konec:</strong> {{ datetime_to_str(trip.end_time) if trip.end_time else '—' }}</div>
+
+                <div><strong>Start GPS:</strong> {{ trip.start_lat }}, {{ trip.start_lng }}</div>
+                <div>
+                    <strong>Konec GPS:</strong>
+                    {% if trip.end_lat is not none and trip.end_lng is not none %}
+                        {{ trip.end_lat }}, {{ trip.end_lng }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if current_user.role == 'admin' %}
+            <form method="POST" action="{{ url_for('delete_work_trip', trip_id=trip.id) }}"
+                  onsubmit="return confirm('Opravdu chcete smazat tuto pracovní cestu?');">
+                <button class="btn btn-danger" type="submit">Smazat pracovní cestu</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script>
+function getGpsPosition(callback) {
+    if (!navigator.geolocation) {
+        alert("Tento prohlížeč nepodporuje GPS polohu.");
+        callback(null);
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        function(position) {
+            callback({
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+            });
+        },
+        function() {
+            alert("Nepodařilo se získat GPS polohu. Povolte polohu telefonu.");
+            callback(null);
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+        }
+    );
+}
+
+function fillStartGps(form) {
+    getGpsPosition(function(pos) {
+        if (!pos) return;
+
+        form.start_lat.value = pos.lat;
+        form.start_lng.value = pos.lng;
+        form.submit();
+    });
+
+    return false;
+}
+
+function fillEndGps(form) {
+    getGpsPosition(function(pos) {
+        if (!pos) return;
+
+        form.end_lat.value = pos.lat;
+        form.end_lng.value = pos.lng;
+        form.submit();
+    });
+
+    return false;
+}
+</script>
+</body>
+</html>
