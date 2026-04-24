@@ -13,9 +13,7 @@
     <meta name="apple-mobile-web-app-title" content="Zakázky">
 
     <style>
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
             margin: 0;
@@ -27,7 +25,7 @@
         }
 
         .page {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
             padding-bottom: 70px;
         }
@@ -75,6 +73,7 @@
         .attendance { background: #16a34a; }
         .tasks { background: #7c3aed; }
         .projects { background: #0f766e; }
+        .work-trips { background: #ea580c; }
 
         .secondary-actions {
             display: grid;
@@ -105,9 +104,7 @@
             color: #0f172a;
         }
 
-        .field-group {
-            margin-bottom: 12px;
-        }
+        .field-group { margin-bottom: 12px; }
 
         label {
             display: block;
@@ -192,7 +189,7 @@
 
         @media (min-width: 700px) {
             .menu-grid {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(5, 1fr);
             }
 
             .secondary-actions {
@@ -221,6 +218,8 @@
             <a class="big-btn materials" href="{{ url_for('materials') }}">Materiál</a>
             <a class="big-btn attendance" href="{{ url_for('attendance') }}">Docházka</a>
             <a class="big-btn tasks" href="{{ url_for('tasks') }}">Úkoly</a>
+            <a class="big-btn work-trips" href="{{ url_for('work_trips') }}">Prac. cesty</a>
+
             {% if current_user.role == 'admin' %}
             <a class="big-btn projects" href="{{ url_for('projects') }}">Projekty</a>
             {% endif %}
