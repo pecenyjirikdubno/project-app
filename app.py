@@ -36,7 +36,7 @@ import hmac
 import hashlib
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "secret-key-change-this"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "secret-key-change-this")
 
 # =====================
 # DATABASE
@@ -65,7 +65,7 @@ login_manager.login_view = "login"
 login_manager.login_message = "Nejdřív se prosím přihlas."
 
 # =====================
-# TIMEZONE + DYNAMIC QR
+# CONSTANTS
 # =====================
 
 APP_TZ = ZoneInfo("Europe/Prague")
@@ -87,6 +87,18 @@ PROJECT_STATUS_OPTIONS = [
     "předáno objednateli",
 ]
 
+WORK_TRIP_PURPOSE_OPTIONS = [
+    "servis",
+    "montáž",
+    "revize",
+    "jednání",
+    "nákup materiálu",
+]
+
+
+# =====================
+# HELPERS BASIC
+# =====================
 
 def now_local():
     return datetime.now(APP_TZ)
@@ -147,6 +159,10 @@ def parse_datetime_value(value: str):
         return None
 
 
+# =====================
+# QR HELPERS
+# =====================
+
 def current_qr_slot(ts=None):
     if ts is None:
         ts = time.time()
@@ -199,7 +215,7 @@ def verify_dynamic_qr_value(value: str):
 
 
 # =====================
-# MODELY
+# MODELS
 # =====================
 
 class User(db.Model, UserMixin):
@@ -297,14 +313,12 @@ class ProjectWorkLog(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
 
 
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
 class WorkTrip(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    purpose = db.Column(db.String(100), nullable=False, default="servis")
 
     start_odometer = db.Column(db.Float, nullable=False)
     end_odometer = db.Column(db.Float, nullable=True)
@@ -322,7 +336,13 @@ class WorkTrip(db.Model):
 
     created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
     updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
-    
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
 # =====================
 # INIT DB
 # =====================
@@ -338,7 +358,7 @@ with app.app_context():
 
 
 # =====================
-# HELPERS
+# APP HELPERS
 # =====================
 
 def admin_required():
@@ -412,6 +432,10 @@ def get_projects_summary(projects_data):
     }
 
 
+# =====================
+# BACKUP / RESTORE HELPERS
+# =====================
+
 def export_backup_data():
     users = User.query.order_by(User.id.asc()).all()
     jobs = Job.query.order_by(Job.id.asc()).all()
@@ -420,6 +444,7 @@ def export_backup_data():
     tasks = Task.query.order_by(Task.id.asc()).all()
     projects = Project.query.order_by(Project.id.asc()).all()
     project_logs = ProjectWorkLog.query.order_by(ProjectWorkLog.id.asc()).all()
+    work_trips = WorkTrip.query.order_by(WorkTrip.id.asc()).all()
 
     data = {
         "meta": {
@@ -515,6 +540,25 @@ def export_backup_data():
             }
             for l in project_logs
         ],
+        "work_trips": [
+            {
+                "id": w.id,
+                "user_id": w.user_id,
+                "purpose": w.purpose,
+                "start_odometer": w.start_odometer,
+                "end_odometer": w.end_odometer,
+                "start_time": w.start_time.isoformat() if w.start_time else None,
+                "end_time": w.end_time.isoformat() if w.end_time else None,
+                "start_lat": w.start_lat,
+                "start_lng": w.start_lng,
+                "end_lat": w.end_lat,
+                "end_lng": w.end_lng,
+                "status": w.status,
+                "created_at": w.created_at.isoformat() if w.created_at else None,
+                "updated_at": w.updated_at.isoformat() if w.updated_at else None,
+            }
+            for w in work_trips
+        ],
     }
     return data
 
@@ -529,6 +573,7 @@ def restore_backup_data(data):
 
     db.session.remove()
 
+    WorkTrip.query.delete()
     Attendance.query.delete()
     ProjectWorkLog.query.delete()
     Project.query.delete()
@@ -545,6 +590,7 @@ def restore_backup_data(data):
     max_task_id = 0
     max_project_id = 0
     max_project_log_id = 0
+    max_work_trip_id = 0
 
     for item in data.get("users", []):
         user = User(
@@ -649,6 +695,26 @@ def restore_backup_data(data):
         db.session.add(log)
         max_project_log_id = max(max_project_log_id, item["id"])
 
+    for item in data.get("work_trips", []):
+        trip = WorkTrip(
+            id=item["id"],
+            user_id=item["user_id"],
+            purpose=item.get("purpose") or "servis",
+            start_odometer=item.get("start_odometer") or 0,
+            end_odometer=item.get("end_odometer"),
+            start_time=parse_datetime_value(item.get("start_time")) or now_local(),
+            end_time=parse_datetime_value(item.get("end_time")),
+            start_lat=item.get("start_lat") or 0,
+            start_lng=item.get("start_lng") or 0,
+            end_lat=item.get("end_lat"),
+            end_lng=item.get("end_lng"),
+            status=item.get("status", "open"),
+            created_at=parse_datetime_value(item.get("created_at")) or now_local(),
+            updated_at=parse_datetime_value(item.get("updated_at")) or now_local(),
+        )
+        db.session.add(trip)
+        max_work_trip_id = max(max_work_trip_id, item["id"])
+
     db.session.commit()
 
     try:
@@ -662,9 +728,14 @@ def restore_backup_data(data):
                 conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('task', 'id'), {max(max_task_id, 1)}, true);"))
                 conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('project', 'id'), {max(max_project_id, 1)}, true);"))
                 conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('project_work_log', 'id'), {max(max_project_log_id, 1)}, true);"))
+                conn.execute(db.text(f"SELECT setval(pg_get_serial_sequence('work_trip', 'id'), {max(max_work_trip_id, 1)}, true);"))
     except Exception:
         pass
 
+
+# =====================
+# REPORT HELPERS
+# =====================
 
 def attendance_duration_hours(record: Attendance) -> float:
     if not record.start_time or not record.end_time or not record.work_date:
@@ -855,7 +926,7 @@ def logout():
 
 
 # =====================
-# MAIN DASHBOARD
+# DASHBOARD
 # =====================
 
 @app.route("/")
@@ -973,12 +1044,10 @@ def export_projects_excel():
     wb.save(output)
     output.seek(0)
 
-    filename = f"projekty_{today_local().isoformat()}.xlsx"
-
     return send_file(
         output,
         as_attachment=True,
-        download_name=filename,
+        download_name=f"projekty_{today_local().isoformat()}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -993,15 +1062,9 @@ def export_projects_workload_excel():
 
     wb = Workbook()
 
-    # sheet 1 - souhrn
     ws_summary = wb.active
     ws_summary.title = "Vytizeni souhrn"
-
-    ws_summary.append([
-        "Název projektu",
-        "Stav",
-        "Celkem hodin",
-    ])
+    ws_summary.append(["Název projektu", "Stav", "Celkem hodin"])
 
     for project in projects_data:
         ws_summary.append([
@@ -1010,13 +1073,8 @@ def export_projects_workload_excel():
             project_total_hours(project.id),
         ])
 
-    # sheet 2 - detail
     ws_detail = wb.create_sheet("Vytizeni detail")
-    ws_detail.append([
-        "Název projektu",
-        "Datum",
-        "Počet hodin",
-    ])
+    ws_detail.append(["Název projektu", "Datum", "Počet hodin"])
 
     logs = ProjectWorkLog.query.order_by(ProjectWorkLog.work_date.asc(), ProjectWorkLog.id.asc()).all()
     project_name_map = {p.id: p.project_name for p in projects_data}
@@ -1028,12 +1086,8 @@ def export_projects_workload_excel():
             log.worked_hours,
         ])
 
-    # sheet 3 - stavy
     ws_status = wb.create_sheet("Hodiny podle stavu")
-    ws_status.append([
-        "Stav",
-        "Celkem hodin",
-    ])
+    ws_status.append(["Stav", "Celkem hodin"])
 
     summary = get_projects_summary([
         type("ProjectSummary", (), {
@@ -1052,12 +1106,10 @@ def export_projects_workload_excel():
     wb.save(output)
     output.seek(0)
 
-    filename = f"vytizeni_projektu_{today_local().isoformat()}.xlsx"
-
     return send_file(
         output,
         as_attachment=True,
-        download_name=filename,
+        download_name=f"vytizeni_projektu_{today_local().isoformat()}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -1175,6 +1227,7 @@ def delete_project(project_id):
     flash("Projekt byl smazán.", "success")
     return redirect(url_for("projects"))
 
+
 # =====================
 # PRACOVNÍ CESTY
 # =====================
@@ -1205,6 +1258,7 @@ def work_trips():
         user_map=user_map,
         open_trip=open_trip,
         datetime_to_str=datetime_to_str,
+        purpose_options=WORK_TRIP_PURPOSE_OPTIONS,
     )
 
 
@@ -1223,6 +1277,12 @@ def start_work_trip():
         flash("Už máš jednu rozpracovanou pracovní cestu.", "error")
         return redirect(url_for("work_trips"))
 
+    purpose = request.form.get("purpose", "").strip()
+
+    if purpose not in WORK_TRIP_PURPOSE_OPTIONS:
+        flash("Vyber platný účel pracovní cesty.", "error")
+        return redirect(url_for("work_trips"))
+
     try:
         start_odometer = float(request.form.get("start_odometer") or 0)
         start_lat = float(request.form.get("start_lat") or "")
@@ -1231,15 +1291,18 @@ def start_work_trip():
         flash("Chybí tachometr nebo GPS poloha.", "error")
         return redirect(url_for("work_trips"))
 
+    current_dt = now_local()
+
     trip = WorkTrip(
         user_id=current_user.id,
+        purpose=purpose,
         start_odometer=start_odometer,
-        start_time=now_local(),
+        start_time=current_dt,
         start_lat=start_lat,
         start_lng=start_lng,
         status="open",
-        created_at=now_local(),
-        updated_at=now_local(),
+        created_at=current_dt,
+        updated_at=current_dt,
     )
 
     db.session.add(trip)
@@ -1277,12 +1340,14 @@ def end_work_trip(trip_id):
         flash("Konečný stav tachometru nesmí být menší než počáteční.", "error")
         return redirect(url_for("work_trips"))
 
+    current_dt = now_local()
+
     trip.end_odometer = end_odometer
-    trip.end_time = now_local()
+    trip.end_time = current_dt
     trip.end_lat = end_lat
     trip.end_lng = end_lng
     trip.status = "closed"
-    trip.updated_at = now_local()
+    trip.updated_at = current_dt
 
     db.session.commit()
 
@@ -1322,6 +1387,7 @@ def export_work_trips_excel():
 
     ws.append([
         "Uživatel",
+        "Účel",
         "Počáteční tachometr",
         "Konečný tachometr",
         "Ujeto km",
@@ -1341,6 +1407,7 @@ def export_work_trips_excel():
 
         ws.append([
             user_map.get(trip.user_id, ""),
+            trip.purpose,
             trip.start_odometer,
             trip.end_odometer,
             distance,
@@ -1363,7 +1430,8 @@ def export_work_trips_excel():
         download_name=f"pracovni_cesty_{today_local().isoformat()}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    
+
+
 # =====================
 # TASKS
 # =====================
@@ -2130,7 +2198,7 @@ def attendance_export_monthly_pdf():
 
 
 # =====================
-# ADMIN INTERNAL BACKUP / RESTORE
+# ADMIN BACKUP / RESTORE
 # =====================
 
 @app.route("/admin/db-backup")
