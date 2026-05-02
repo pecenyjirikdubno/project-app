@@ -8,9 +8,6 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#2563eb">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Zakázky">
 
     <style>
         * { box-sizing: border-box; }
@@ -34,7 +31,7 @@
             font-size: 28px;
         }
 
-        .topbar {
+        .topbar, .top-form, .job-actions {
             display: grid;
             gap: 10px;
             margin-bottom: 16px;
@@ -88,12 +85,6 @@
             border-radius: 10px;
             font-size: 16px;
             background: #fff;
-        }
-
-        .top-form {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 10px;
         }
 
         .btn {
@@ -153,13 +144,6 @@
             color: #0f172a;
         }
 
-        .job-actions {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 8px;
-            margin-top: 14px;
-        }
-
         .closed-badge {
             display: inline-block;
             padding: 6px 10px;
@@ -177,6 +161,12 @@
             padding: 10px;
             border-radius: 10px;
             margin-bottom: 12px;
+        }
+
+        .qr-help {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 4px;
         }
 
         @media (min-width: 700px) {
@@ -256,33 +246,68 @@
                     </div>
 
                     <div class="field-group">
+                        <label>ID materiálu</label>
+                        <input type="text"
+                               name="material_id_{{ row.id }}"
+                               value="{{ row.material_id or '' }}"
+                               placeholder="např. JZ00001">
+                    </div>
+
+                    <div class="field-group">
                         <label>Materiál</label>
-                        <input type="text" name="material_name_{{ row.id }}" value="{{ row.material_name or '' }}">
+                        <input type="text"
+                               id="material_name_{{ row.id }}"
+                               name="material_name_{{ row.id }}"
+                               value="{{ row.material_name or '' }}">
+                    </div>
+
+                    <div class="field-group">
+                        <label>QR / výdejka</label>
+                        <button type="button" class="btn btn-secondary" onclick="scanQR({{ row.id }})">
+                            Načíst QR / zadat ručně
+                        </button>
+                        <div class="qr-help">
+                            Formát: JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m
+                        </div>
                     </div>
 
                     <div class="field-group">
                         <label>Množství</label>
-                        <input type="number" step="any" name="quantity_{{ row.id }}" value="{{ row.quantity or '' }}">
+                        <input type="number"
+                               step="any"
+                               name="quantity_{{ row.id }}"
+                               value="{{ row.quantity or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Číslo dokladu</label>
-                        <input type="text" name="document_number_{{ row.id }}" value="{{ row.document_number or '' }}">
+                        <input type="text"
+                               name="document_number_{{ row.id }}"
+                               value="{{ row.document_number or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Km</label>
-                        <input type="number" step="any" name="km_{{ row.id }}" value="{{ row.km or '' }}">
+                        <input type="number"
+                               step="any"
+                               name="km_{{ row.id }}"
+                               value="{{ row.km or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Čas na cestě</label>
-                        <input type="number" step="any" name="travel_time_{{ row.id }}" value="{{ row.travel_time or '' }}">
+                        <input type="number"
+                               step="any"
+                               name="travel_time_{{ row.id }}"
+                               value="{{ row.travel_time or '' }}">
                     </div>
 
                     <div class="field-group">
                         <label>Odpracované hodiny</label>
-                        <input type="number" step="any" name="work_hours_{{ row.id }}" value="{{ row.work_hours or '' }}">
+                        <input type="number"
+                               step="any"
+                               name="work_hours_{{ row.id }}"
+                               value="{{ row.work_hours or '' }}">
                     </div>
                 </div>
             </div>
@@ -328,5 +353,47 @@
     {% endfor %}
 
 </div>
+
+<script>
+function fillMaterialFromQr(rowId, code) {
+    if (!code) return;
+
+    const parts = code.split("|").map(item => item.trim());
+
+    const materialIdInput = document.querySelector(`[name="material_id_${rowId}"]`);
+    const materialNameInput = document.querySelector(`[name="material_name_${rowId}"]`);
+    const quantityInput = document.querySelector(`[name="quantity_${rowId}"]`);
+
+    if (parts.length >= 5) {
+        materialIdInput.value = parts[0];
+        materialNameInput.value = parts[2];
+        quantityInput.value = parts[3].replace(",", ".");
+        return;
+    }
+
+    if (parts.length >= 2) {
+        materialIdInput.value = parts[0];
+        materialNameInput.value = parts[1];
+        return;
+    }
+
+    if (parts.length === 1 && parts[0].startsWith("JZ")) {
+        materialIdInput.value = parts[0];
+        return;
+    }
+
+    alert("Neplatný formát QR / ID materiálu.");
+}
+
+function scanQR(rowId) {
+    const code = prompt(
+        "Zadej nebo vlož obsah QR kódu:\n\n" +
+        "JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m\n\n" +
+        "Nebo jen ID materiálu: JZ00001"
+    );
+
+    fillMaterialFromQr(rowId, code);
+}
+</script>
 </body>
 </html>
