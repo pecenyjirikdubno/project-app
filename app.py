@@ -38,10 +38,6 @@ import hashlib
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "secret-key-change-this")
 
-# =====================
-# DATABASE
-# =====================
-
 database_url = os.environ.get("DATABASE_URL")
 
 if not database_url:
@@ -55,18 +51,10 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# =====================
-# LOGIN MANAGER
-# =====================
-
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Nejdřív se prosím přihlas."
-
-# =====================
-# CONSTANTS
-# =====================
 
 APP_TZ = ZoneInfo("Europe/Prague")
 
@@ -95,10 +83,6 @@ WORK_TRIP_PURPOSE_OPTIONS = [
     "nákup materiálu",
 ]
 
-
-# =====================
-# HELPERS BASIC
-# =====================
 
 def now_local():
     return datetime.now(APP_TZ)
@@ -159,10 +143,6 @@ def parse_datetime_value(value: str):
         return None
 
 
-# =====================
-# QR HELPERS
-# =====================
-
 def current_qr_slot(ts=None):
     if ts is None:
         ts = time.time()
@@ -174,7 +154,7 @@ def build_dynamic_qr_value(slot: int) -> str:
     signature = hmac.new(
         QR_SECRET.encode("utf-8"),
         payload.encode("utf-8"),
-        hashlib.sha256
+        hashlib.sha256,
     ).hexdigest()[:20]
     return f"{QR_PREFIX}|{slot}|{signature}"
 
@@ -205,7 +185,7 @@ def verify_dynamic_qr_value(value: str):
     expected_signature = hmac.new(
         QR_SECRET.encode("utf-8"),
         expected_payload.encode("utf-8"),
-        hashlib.sha256
+        hashlib.sha256,
     ).hexdigest()[:20]
 
     if not hmac.compare_digest(signature, expected_signature):
@@ -213,10 +193,6 @@ def verify_dynamic_qr_value(value: str):
 
     return True, None
 
-
-# =====================
-# MODELS
-# =====================
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -242,6 +218,7 @@ class JobRow(db.Model):
     job_id = db.Column(db.Integer, db.ForeignKey("job.id"), nullable=False)
 
     date = db.Column(db.String(20))
+    material_id = db.Column(db.String(50))
     material_name = db.Column(db.String(200))
     quantity = db.Column(db.Float)
     document_number = db.Column(db.String(100))
@@ -343,10 +320,6 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# =====================
-# INIT DB
-# =====================
-
 with app.app_context():
     db.create_all()
 
@@ -356,10 +329,6 @@ with app.app_context():
         db.session.add(admin)
         db.session.commit()
 
-
-# =====================
-# APP HELPERS
-# =====================
 
 def admin_required():
     if current_user.role != "admin":
@@ -422,7 +391,7 @@ def get_projects_summary(projects_data):
     for status in PROJECT_STATUS_OPTIONS:
         hours_by_status[status] = round(
             sum((item.total_hours or 0) for item in projects_data if item.status == status),
-            2
+            2,
         )
 
     return {
@@ -431,10 +400,6 @@ def get_projects_summary(projects_data):
         "hours_by_status": hours_by_status,
     }
 
-
-# =====================
-# BACKUP / RESTORE HELPERS
-# =====================
 
 def export_backup_data():
     users = User.query.order_by(User.id.asc()).all()
@@ -474,6 +439,7 @@ def export_backup_data():
                 "id": r.id,
                 "job_id": r.job_id,
                 "date": r.date,
+                "material_id": r.material_id,
                 "material_name": r.material_name,
                 "quantity": r.quantity,
                 "document_number": r.document_number,
@@ -616,6 +582,7 @@ def restore_backup_data(data):
             id=item["id"],
             job_id=item["job_id"],
             date=item.get("date"),
+            material_id=item.get("material_id"),
             material_name=item.get("material_name"),
             quantity=item.get("quantity"),
             document_number=item.get("document_number"),
@@ -732,10 +699,6 @@ def restore_backup_data(data):
     except Exception:
         pass
 
-
-# =====================
-# REPORT HELPERS
-# =====================
 
 def attendance_duration_hours(record: Attendance) -> float:
     if not record.start_time or not record.end_time or not record.work_date:
@@ -880,10 +843,6 @@ def list_report_files():
     return files
 
 
-# =====================
-# PWA
-# =====================
-
 @app.route("/manifest.json")
 def manifest():
     return send_from_directory(".", "manifest.json", mimetype="application/manifest+json")
@@ -893,10 +852,6 @@ def manifest():
 def service_worker():
     return send_from_directory(".", "service-worker.js", mimetype="application/javascript")
 
-
-# =====================
-# AUTH
-# =====================
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -924,10 +879,6 @@ def logout():
     logout_user()
     return redirect(url_for("login"))
 
-
-# =====================
-# DASHBOARD
-# =====================
 
 @app.route("/")
 @login_required
@@ -979,10 +930,6 @@ def download_report(filename):
     return send_file(safe_path, as_attachment=True, download_name=os.path.basename(safe_path))
 
 
-# =====================
-# PROJECTS
-# =====================
-
 @app.route("/projects")
 @login_required
 def projects():
@@ -993,7 +940,7 @@ def projects():
     for item in projects_data:
         item.logs = ProjectWorkLog.query.filter_by(project_id=item.id).order_by(
             ProjectWorkLog.work_date.desc(),
-            ProjectWorkLog.id.desc()
+            ProjectWorkLog.id.desc(),
         ).all()
         item.total_hours = project_total_hours(item.id)
 
@@ -1092,7 +1039,7 @@ def export_projects_workload_excel():
     summary = get_projects_summary([
         type("ProjectSummary", (), {
             "status": p.status,
-            "total_hours": project_total_hours(p.id)
+            "total_hours": project_total_hours(p.id),
         }) for p in projects_data
     ])
 
@@ -1228,10 +1175,6 @@ def delete_project(project_id):
     return redirect(url_for("projects"))
 
 
-# =====================
-# PRACOVNÍ CESTY
-# =====================
-
 @app.route("/work-trips")
 @login_required
 def work_trips():
@@ -1249,7 +1192,7 @@ def work_trips():
 
     open_trip = WorkTrip.query.filter_by(
         user_id=current_user.id,
-        status="open"
+        status="open",
     ).first()
 
     return render_template(
@@ -1270,7 +1213,7 @@ def start_work_trip():
 
     existing = WorkTrip.query.filter_by(
         user_id=current_user.id,
-        status="open"
+        status="open",
     ).first()
 
     if existing:
@@ -1432,10 +1375,6 @@ def export_work_trips_excel():
     )
 
 
-# =====================
-# TASKS
-# =====================
-
 @app.route("/tasks")
 @login_required
 def tasks():
@@ -1569,10 +1508,6 @@ def delete_task(task_id):
     return redirect(url_for("tasks"))
 
 
-# =====================
-# MATERIÁL
-# =====================
-
 @app.route("/materials")
 @login_required
 def materials():
@@ -1624,6 +1559,7 @@ def add_row(job_id):
     new_row = JobRow(
         job_id=job_id,
         date="",
+        material_id="",
         material_name="",
         quantity=0,
         document_number="",
@@ -1653,6 +1589,7 @@ def save(job_id):
 
     for row in rows:
         row.date = request.form.get(f"date_{row.id}")
+        row.material_id = request.form.get(f"material_id_{row.id}")
         row.material_name = request.form.get(f"material_name_{row.id}")
         row.quantity = float(request.form.get(f"quantity_{row.id}") or 0)
         row.document_number = request.form.get(f"document_number_{row.id}")
@@ -1694,6 +1631,7 @@ def export(job_id):
 
     ws.append([
         "Datum",
+        "ID materiálu",
         "Materiál",
         "Množství",
         "Číslo dokladu",
@@ -1705,6 +1643,7 @@ def export(job_id):
     for r in rows:
         ws.append([
             r.date,
+            r.material_id,
             r.material_name,
             r.quantity,
             r.document_number,
@@ -1724,10 +1663,6 @@ def export(job_id):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-
-# =====================
-# DOCHÁZKA
-# =====================
 
 @app.route("/attendance")
 @login_required
@@ -1779,7 +1714,7 @@ def attendance():
 
     today_record = Attendance.query.filter_by(
         user_id=current_user.id,
-        work_date=today_local()
+        work_date=today_local(),
     ).first()
 
     return render_template(
@@ -1813,7 +1748,7 @@ def create_attendance_day():
 
     existing = Attendance.query.filter_by(
         user_id=current_user.id,
-        work_date=work_date
+        work_date=work_date,
     ).first()
 
     if existing:
@@ -1858,7 +1793,7 @@ def attendance_scan_qr():
 
     record = Attendance.query.filter_by(
         user_id=current_user.id,
-        work_date=work_date
+        work_date=work_date,
     ).first()
 
     if not record:
@@ -2197,10 +2132,6 @@ def attendance_export_monthly_pdf():
     )
 
 
-# =====================
-# ADMIN BACKUP / RESTORE
-# =====================
-
 @app.route("/admin/db-backup")
 @login_required
 def admin_db_backup():
@@ -2250,10 +2181,6 @@ def admin_db_restore():
 
     return redirect(url_for("dashboard"))
 
-
-# =====================
-# USER MANAGEMENT
-# =====================
 
 @app.route("/users")
 @login_required
@@ -2314,10 +2241,6 @@ def delete_user(user_id):
     flash("Uživatel byl smazán.", "success")
     return redirect(url_for("users"))
 
-
-# =====================
-# RUN
-# =====================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
