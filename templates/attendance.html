@@ -250,6 +250,7 @@
     </div>
     {% endif %}
 
+    {% if current_user.role == 'admin' %}
     <div class="card">
         <form method="POST" action="{{ url_for('create_attendance_day') }}">
             <div class="field-group">
@@ -259,6 +260,13 @@
             <button class="btn btn-primary" type="submit">Vytvořit den docházky ručně</button>
         </form>
     </div>
+    {% else %}
+    <div class="card">
+        <div class="qr-status">
+            Docházka je pro běžného uživatele uzamčená. Příchod a odchod lze zapsat pouze načtením firemního QR kódu.
+        </div>
+    </div>
+    {% endif %}
 
     <div class="card">
         <form method="GET" action="{{ url_for('attendance') }}">
@@ -289,10 +297,14 @@
 
     {% for record in records %}
     <div class="record-card">
-        {% if can_user_edit_attendance(record) %}
-            <div class="badge badge-open">Lze upravovat</div>
+        {% if current_user.role == 'admin' %}
+            {% if can_user_edit_attendance(record) %}
+                <div class="badge badge-open">Lze upravovat adminem</div>
+            {% else %}
+                <div class="badge badge-locked">Uzamčeno</div>
+            {% endif %}
         {% else %}
-            <div class="badge badge-locked">Uzamčeno</div>
+            <div class="badge badge-locked">Uzamčeno – pouze QR</div>
         {% endif %}
 
         <div class="record-grid">
@@ -305,24 +317,6 @@
             <div class="info-line"><strong>Nástup:</strong> {{ time_to_str(record.start_time) or '—' }}</div>
             <div class="info-line"><strong>Ukončení:</strong> {{ time_to_str(record.end_time) or '—' }}</div>
         </div>
-
-        {% if current_user.role != 'admin' and can_user_edit_attendance(record) %}
-        <form method="POST" action="{{ url_for('attendance_user_update', record_id=record.id) }}">
-            <div class="admin-grid">
-                <div class="field-group">
-                    <label>Čas nástupu</label>
-                    <input type="time" name="start_time" value="{{ time_to_str(record.start_time) }}">
-                </div>
-
-                <div class="field-group">
-                    <label>Čas ukončení</label>
-                    <input type="time" name="end_time" value="{{ time_to_str(record.end_time) }}">
-                </div>
-            </div>
-
-            <button class="btn btn-primary" type="submit">Uložit docházku</button>
-        </form>
-        {% endif %}
 
         {% if current_user.role == 'admin' %}
         <div class="admin-tools">
