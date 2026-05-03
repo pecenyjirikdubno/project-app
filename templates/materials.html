@@ -105,6 +105,7 @@
         .btn-success { background: #16a34a; color: white; }
         .btn-warning { background: #ea580c; color: white; }
         .btn-secondary { background: #64748b; color: white; }
+        .btn-purple { background: #7c3aed; color: white; }
 
         .totals {
             margin-top: 14px;
@@ -163,10 +164,35 @@
             margin-bottom: 12px;
         }
 
-        .qr-help {
+        .qr-help, .muted {
             font-size: 12px;
             color: #64748b;
             margin-top: 4px;
+        }
+
+        .material-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .material-item {
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #fff;
+            font-size: 14px;
+        }
+
+        .material-main {
+            font-weight: bold;
+            color: #0f172a;
+        }
+
+        .small-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
         }
 
         @media (min-width: 700px) {
@@ -179,7 +205,7 @@
                 grid-template-columns: repeat(3, 1fr);
             }
 
-            .row-grid {
+            .row-grid, .small-grid {
                 display: grid;
                 grid-template-columns: repeat(2, 1fr);
                 gap: 12px;
@@ -234,98 +260,84 @@
         {% endif %}
 
         {% if not job.closed %}
-        <form method="POST" action="{{ url_for('save', job_id=job.id) }}">
-            {% for row in job.rows %}
-            <div class="row-card">
-                <div class="section-title">Řádek {{ loop.index }}</div>
+        <div class="row-card">
+            <div class="section-title">Přidat materiál</div>
 
+            <form method="POST" action="{{ url_for('add_material_row', job_id=job.id) }}">
                 <div class="row-grid">
-                    <div class="field-group">
-                        <label>Datum</label>
-                        <input type="date" name="date_{{ row.id }}" value="{{ row.date or '' }}">
-                    </div>
-
                     <div class="field-group">
                         <label>ID materiálu</label>
                         <input type="text"
-                               name="material_id_{{ row.id }}"
-                               value="{{ row.material_id or '' }}"
-                               placeholder="např. JZ00001">
-                    </div>
-
-                    <div class="field-group">
-                        <label>Materiál</label>
-                        <input type="text"
-                               id="material_name_{{ row.id }}"
-                               name="material_name_{{ row.id }}"
-                               value="{{ row.material_name or '' }}">
-                    </div>
-
-                    <div class="field-group">
-                        <label>QR / výdejka</label>
-                        <button type="button" class="btn btn-secondary" onclick="scanQR({{ row.id }})">
-                            Načíst QR / zadat ručně
-                        </button>
-                        <div class="qr-help">
-                            Formát: JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m
-                        </div>
+                               id="material_id_{{ job.id }}"
+                               name="material_id"
+                               placeholder="např. JZ00001"
+                               required>
                     </div>
 
                     <div class="field-group">
                         <label>Množství</label>
                         <input type="number"
+                               id="quantity_{{ job.id }}"
                                step="any"
-                               name="quantity_{{ row.id }}"
-                               value="{{ row.quantity or '' }}">
+                               min="0"
+                               name="quantity"
+                               required>
                     </div>
 
                     <div class="field-group">
-                        <label>Číslo dokladu</label>
-                        <input type="text"
-                               name="document_number_{{ row.id }}"
-                               value="{{ row.document_number or '' }}">
-                    </div>
-
-                    <div class="field-group">
-                        <label>Km</label>
-                        <input type="number"
-                               step="any"
-                               name="km_{{ row.id }}"
-                               value="{{ row.km or '' }}">
-                    </div>
-
-                    <div class="field-group">
-                        <label>Čas na cestě</label>
-                        <input type="number"
-                               step="any"
-                               name="travel_time_{{ row.id }}"
-                               value="{{ row.travel_time or '' }}">
-                    </div>
-
-                    <div class="field-group">
-                        <label>Odpracované hodiny</label>
-                        <input type="number"
-                               step="any"
-                               name="work_hours_{{ row.id }}"
-                               value="{{ row.work_hours or '' }}">
+                        <label>QR / výdejka</label>
+                        <button type="button" class="btn btn-secondary" onclick="scanQR({{ job.id }})">
+                            Načíst QR / zadat ručně
+                        </button>
+                        <div class="qr-help">
+                            Formát: JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m nebo jen JZ00001
+                        </div>
                     </div>
                 </div>
-            </div>
-            {% endfor %}
 
-            <button type="submit" class="btn btn-success">Uložit zakázku</button>
-        </form>
+                <button type="submit" class="btn btn-success">Uložit materiál</button>
+            </form>
+        </div>
 
-        <form method="POST" action="{{ url_for('add_row', job_id=job.id) }}">
-            <button type="submit" class="btn btn-primary">Přidat řádek</button>
-        </form>
+        <div class="row-card">
+            <div class="section-title">Přidat km</div>
+            <form method="POST" action="{{ url_for('add_km_row', job_id=job.id) }}" class="small-grid">
+                <div class="field-group">
+                    <label>Km</label>
+                    <input type="number" step="any" min="0" name="km" required>
+                </div>
+                <button type="submit" class="btn btn-warning">Přidat km</button>
+            </form>
+        </div>
+
+        <div class="row-card">
+            <div class="section-title">Přidat čas na cestě</div>
+            <form method="POST" action="{{ url_for('add_travel_time_row', job_id=job.id) }}" class="small-grid">
+                <div class="field-group">
+                    <label>Čas na cestě</label>
+                    <input type="number" step="any" min="0" name="travel_time" required>
+                </div>
+                <button type="submit" class="btn btn-purple">Přidat čas</button>
+            </form>
+        </div>
+
+        <div class="row-card">
+            <div class="section-title">Přidat odpracované hodiny</div>
+            <form method="POST" action="{{ url_for('add_work_hours_row', job_id=job.id) }}" class="small-grid">
+                <div class="field-group">
+                    <label>Odpracované hodiny</label>
+                    <input type="number" step="any" min="0" name="work_hours" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Přidat hodiny</button>
+            </form>
+        </div>
         {% endif %}
 
         <div class="totals">
             <h3>Součty zakázky</h3>
             <div class="totals-grid">
                 <div class="total-box">
-                    <div class="total-label">Množství</div>
+                    <div class="total-label">Množství materiálu</div>
                     <div class="total-value">{{ job.total_quantity or 0 }}</div>
                 </div>
                 <div class="total-box">
@@ -343,6 +355,22 @@
             </div>
         </div>
 
+        <div class="section-title">Zapsaný materiál</div>
+        {% if job.material_rows %}
+            <div class="material-list">
+                {% for row in job.material_rows %}
+                <div class="material-item">
+                    <div class="material-main">{{ row.material_id or '—' }} / množství: {{ row.quantity or 0 }}</div>
+                    <div class="muted">
+                        {{ datetime_to_str(row.created_at) }} / {{ user_map.get(row.created_by_user_id, '') or '—' }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="muted">Zatím není zapsaný žádný materiál.</div>
+        {% endif %}
+
         <div class="job-actions">
             <a class="btn btn-secondary" href="{{ url_for('export', job_id=job.id) }}">Export Excel</a>
             {% if not job.closed and current_user.role == 'admin' %}
@@ -355,29 +383,21 @@
 </div>
 
 <script>
-function fillMaterialFromQr(rowId, code) {
+function fillMaterialFromQr(jobId, code) {
     if (!code) return;
 
     const parts = code.split("|").map(item => item.trim());
 
-    const materialIdInput = document.querySelector(`[name="material_id_${rowId}"]`);
-    const materialNameInput = document.querySelector(`[name="material_name_${rowId}"]`);
-    const quantityInput = document.querySelector(`[name="quantity_${rowId}"]`);
+    const materialIdInput = document.getElementById(`material_id_${jobId}`);
+    const quantityInput = document.getElementById(`quantity_${jobId}`);
 
     if (parts.length >= 5) {
         materialIdInput.value = parts[0];
-        materialNameInput.value = parts[2];
         quantityInput.value = parts[3].replace(",", ".");
         return;
     }
 
-    if (parts.length >= 2) {
-        materialIdInput.value = parts[0];
-        materialNameInput.value = parts[1];
-        return;
-    }
-
-    if (parts.length === 1 && parts[0].startsWith("JZ")) {
+    if (parts.length >= 1 && parts[0].startsWith("JZ")) {
         materialIdInput.value = parts[0];
         return;
     }
@@ -385,14 +405,14 @@ function fillMaterialFromQr(rowId, code) {
     alert("Neplatný formát QR / ID materiálu.");
 }
 
-function scanQR(rowId) {
+function scanQR(jobId) {
     const code = prompt(
         "Zadej nebo vlož obsah QR kódu:\n\n" +
         "JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m\n\n" +
         "Nebo jen ID materiálu: JZ00001"
     );
 
-    fillMaterialFromQr(rowId, code);
+    fillMaterialFromQr(jobId, code);
 }
 </script>
 </body>
