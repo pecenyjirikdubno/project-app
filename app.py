@@ -1554,10 +1554,63 @@ def materials():
         job.total_travel_time = sum((r.travel_time or 0) for r in job.travel_time_rows)
         job.total_work_hours = sum((r.work_hours or 0) for r in job.work_hours_rows)
 
+        material_summary = {}
+        for row in job.material_rows:
+            material_id = (row.material_id or "").strip()
+            if not material_id:
+                continue
+            material_summary[material_id] = material_summary.get(material_id, 0) + (row.quantity or 0)
+
+        job.material_summary = [
+            {"material_id": material_id, "quantity": round(quantity, 3)}
+            for material_id, quantity in sorted(material_summary.items())
+        ]
+
     users = User.query.filter(User.id.in_(all_user_ids)).all() if all_user_ids else []
     user_map = {u.id: u.username for u in users}
 
     return render_template("materials.html", jobs=jobs, user_map=user_map, datetime_to_str=datetime_to_str)
+
+
+@app.route("/material-history/<material_id>")
+@login_required
+def material_history(material_id):
+    if not user_app_access_required():
+        return jsonify([]), 403
+
+    material_id = (material_id or "").strip()
+    if not material_id:
+        return jsonify([])
+
+    rows = (
+        JobRow.query.filter(
+            JobRow.material_id == material_id,
+            JobRow.entry_type == "material",
+        )
+        .order_by(JobRow.created_at.desc(), JobRow.id.desc())
+        .all()
+    )
+
+    job_ids = {row.job_id for row in rows}
+    user_ids = {row.created_by_user_id for row in rows if row.created_by_user_id}
+
+    jobs = Job.query.filter(Job.id.in_(job_ids)).all() if job_ids else []
+    users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
+
+    job_map = {job.id: job.name for job in jobs}
+    user_map = {user.id: user.username for user in users}
+
+    data = []
+    for row in rows:
+        data.append({
+            "job_id": row.job_id,
+            "job_name": job_map.get(row.job_id, ""),
+            "quantity": row.quantity or 0,
+            "date": datetime_to_str(row.created_at),
+            "user": user_map.get(row.created_by_user_id, ""),
+        })
+
+    return jsonify(data)
 
 
 @app.route("/create_job", methods=["POST"])
