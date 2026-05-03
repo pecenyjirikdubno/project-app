@@ -106,6 +106,7 @@
         .btn-warning { background: #ea580c; color: white; }
         .btn-secondary { background: #64748b; color: white; }
         .btn-purple { background: #7c3aed; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
 
         .totals {
             margin-top: 14px;
@@ -189,10 +190,58 @@
             color: #0f172a;
         }
 
+        .material-link {
+            color: #2563eb;
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
         .small-grid {
             display: grid;
             grid-template-columns: 1fr;
             gap: 10px;
+        }
+
+        .closed-job {
+            display: none;
+        }
+
+        .history-box {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            font-size: 14px;
+            white-space: pre-line;
+        }
+
+        .qr-overlay {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.86);
+            padding: 16px;
+        }
+
+        .qr-modal {
+            max-width: 480px;
+            margin: 20px auto;
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+        }
+
+        #qr-reader {
+            width: 100%;
+            min-height: 260px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #f1f5f9;
         }
 
         @media (min-width: 700px) {
@@ -249,10 +298,14 @@
             </div>
             <button type="submit" class="btn btn-primary">Vytvořit zakázku</button>
         </form>
+
+        <button type="button" id="toggleClosedBtn" class="btn btn-secondary" onclick="toggleClosedJobs()">
+            Zobrazit uzavřené zakázky
+        </button>
     </div>
 
     {% for job in jobs %}
-    <div class="card">
+    <div class="card job-card {% if job.closed %}closed-job{% endif %}" data-closed="{{ '1' if job.closed else '0' }}">
         <h2 class="job-title">{{ job.name }}</h2>
 
         {% if job.closed %}
@@ -271,6 +324,7 @@
                                id="material_id_{{ job.id }}"
                                name="material_id"
                                placeholder="např. JZ00001"
+                               autocomplete="off"
                                required>
                     </div>
 
@@ -286,8 +340,11 @@
 
                     <div class="field-group">
                         <label>QR / výdejka</label>
-                        <button type="button" class="btn btn-secondary" onclick="scanQR({{ job.id }})">
-                            Načíst QR / zadat ručně
+                        <button type="button" class="btn btn-secondary" onclick="startQrScanner({{ job.id }})">
+                            📷 Načíst QR do ID materiálu
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="manualQrInput({{ job.id }})">
+                            Zadat QR ručně
                         </button>
                         <div class="qr-help">
                             Formát: JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m nebo jen JZ00001
@@ -355,12 +412,33 @@
             </div>
         </div>
 
+        <div class="section-title">Rychlý součet materiálu</div>
+        {% if job.material_summary %}
+            <div class="material-list">
+                {% for item in job.material_summary %}
+                <div class="material-item">
+                    <span class="material-link" onclick="showMaterialHistory('{{ item.material_id }}')">
+                        {{ item.material_id }}
+                    </span>
+                    / celkem: <strong>{{ item.quantity }}</strong>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="muted">Zatím není co sčítat.</div>
+        {% endif %}
+
         <div class="section-title">Zapsaný materiál</div>
         {% if job.material_rows %}
             <div class="material-list">
                 {% for row in job.material_rows %}
                 <div class="material-item">
-                    <div class="material-main">{{ row.material_id or '—' }} / množství: {{ row.quantity or 0 }}</div>
+                    <div class="material-main">
+                        <span class="material-link" onclick="showMaterialHistory('{{ row.material_id }}')">
+                            {{ row.material_id or '—' }}
+                        </span>
+                        / množství: {{ row.quantity or 0 }}
+                    </div>
                     <div class="muted">
                         {{ datetime_to_str(row.created_at) }} / {{ user_map.get(row.created_by_user_id, '') or '—' }}
                     </div>
@@ -370,6 +448,8 @@
         {% else %}
             <div class="muted">Zatím není zapsaný žádný materiál.</div>
         {% endif %}
+
+        <div id="history_{{ job.id }}" class="history-box"></div>
 
         <div class="job-actions">
             <a class="btn btn-secondary" href="{{ url_for('export', job_id=job.id) }}">Export Excel</a>
@@ -382,7 +462,24 @@
 
 </div>
 
+<div id="qrOverlay" class="qr-overlay">
+    <div class="qr-modal">
+        <h2 style="margin-top:0;">Načíst QR kód</h2>
+        <div id="qr-reader"></div>
+        <button type="button" class="btn btn-danger" onclick="stopQrScanner()">Zavřít skener</button>
+    </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode" crossorigin="anonymous"></script>
 <script>
+let html5QrCode = null;
+let currentScanJobId = null;
+let showClosed = false;
+
+function normalizeMaterialId(value) {
+    return (value || "").trim().toUpperCase();
+}
+
 function fillMaterialFromQr(jobId, code) {
     if (!code) return;
 
@@ -392,20 +489,20 @@ function fillMaterialFromQr(jobId, code) {
     const quantityInput = document.getElementById(`quantity_${jobId}`);
 
     if (parts.length >= 5) {
-        materialIdInput.value = parts[0];
+        materialIdInput.value = normalizeMaterialId(parts[0]);
         quantityInput.value = parts[3].replace(",", ".");
         return;
     }
 
-    if (parts.length >= 1 && parts[0].startsWith("JZ")) {
-        materialIdInput.value = parts[0];
+    if (parts.length >= 1 && normalizeMaterialId(parts[0]).startsWith("JZ")) {
+        materialIdInput.value = normalizeMaterialId(parts[0]);
         return;
     }
 
     alert("Neplatný formát QR / ID materiálu.");
 }
 
-function scanQR(jobId) {
+function manualQrInput(jobId) {
     const code = prompt(
         "Zadej nebo vlož obsah QR kódu:\n\n" +
         "JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m\n\n" +
@@ -413,6 +510,86 @@ function scanQR(jobId) {
     );
 
     fillMaterialFromQr(jobId, code);
+}
+
+function startQrScanner(jobId) {
+    currentScanJobId = jobId;
+
+    if (!window.Html5Qrcode) {
+        alert("QR skener se nepodařilo načíst. Použij ruční zadání.");
+        manualQrInput(jobId);
+        return;
+    }
+
+    const overlay = document.getElementById("qrOverlay");
+    overlay.style.display = "block";
+
+    html5QrCode = new Html5Qrcode("qr-reader");
+
+    html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        function(decodedText) {
+            fillMaterialFromQr(currentScanJobId, decodedText);
+            stopQrScanner();
+        },
+        function() {}
+    ).catch(function() {
+        alert("Nepodařilo se spustit kameru. Zkontroluj povolení kamery v prohlížeči.");
+        stopQrScanner();
+        manualQrInput(jobId);
+    });
+}
+
+function stopQrScanner() {
+    const overlay = document.getElementById("qrOverlay");
+
+    if (html5QrCode) {
+        html5QrCode.stop().catch(function() {}).finally(function() {
+            html5QrCode.clear();
+            html5QrCode = null;
+            overlay.style.display = "none";
+        });
+    } else {
+        overlay.style.display = "none";
+    }
+}
+
+function toggleClosedJobs() {
+    showClosed = !showClosed;
+
+    document.querySelectorAll(".job-card[data-closed='1']").forEach(function(card) {
+        card.style.display = showClosed ? "block" : "none";
+    });
+
+    const btn = document.getElementById("toggleClosedBtn");
+    btn.textContent = showClosed ? "Skrýt uzavřené zakázky" : "Zobrazit uzavřené zakázky";
+}
+
+function showMaterialHistory(materialId) {
+    materialId = normalizeMaterialId(materialId);
+    if (!materialId || materialId === "—") return;
+
+    fetch("/material-history/" + encodeURIComponent(materialId))
+        .then(response => response.json())
+        .then(data => {
+            let text = "Historie materiálu " + materialId + ":\n\n";
+
+            if (!data.length) {
+                text += "Nenalezen žádný záznam.";
+            } else {
+                data.forEach(item => {
+                    text += item.date + " | " + item.job_name + " | množství: " + item.quantity;
+                    if (item.user) {
+                        text += " | " + item.user;
+                    }
+                    text += "\n";
+                });
+            }
+
+            alert(text);
+        })
+        .catch(() => alert("Historii materiálu se nepodařilo načíst."));
 }
 </script>
 </body>
