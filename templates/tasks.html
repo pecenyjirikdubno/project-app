@@ -1,22 +1,108 @@
-class Task(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Úkoly</title>
 
-    title = db.Column(db.String(200), nullable=False)
-    description = db.Column(db.Text, nullable=True)
+<style>
+body { font-family: Arial; background:#f4f6f8; padding:16px; }
+.card { background:#fff; padding:16px; border-radius:12px; margin-bottom:12px; }
+.hidden { display:none; }
+.btn { padding:10px; border:none; border-radius:8px; margin-top:6px; cursor:pointer; }
+.btn-primary { background:#2563eb; color:white; }
+.btn-danger { background:#dc2626; color:white; }
+.btn-success { background:#16a34a; color:white; }
+</style>
+</head>
 
-    assigned_date = db.Column(db.Date, nullable=True)
-    due_date = db.Column(db.Date, nullable=True)
+<body>
 
-    completion_text = db.Column(db.Text, nullable=True)
+<h1>Úkoly</h1>
 
-    status = db.Column(db.String(30), nullable=False, default="new")
-    admin_confirmed = db.Column(db.Boolean, nullable=False, default=False)
+<a href="{{ url_for('dashboard') }}">← zpět</a>
 
-    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    assigned_to_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
-    completed_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+<button onclick="toggleApproved()">Zobrazit / skrýt potvrzené</button>
 
-    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
-    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
-    completed_at = db.Column(db.DateTime, nullable=True)
-    admin_confirmed_at = db.Column(db.DateTime, nullable=True)
+<div class="card">
+<form method="POST" action="{{ url_for('create_task') }}">
+<input name="title" placeholder="Název úkolu" required>
+<textarea name="description" placeholder="Popis"></textarea>
+
+<select name="assigned_to_user_id">
+<option value="">Nepřiřazeno</option>
+{% for user in assignable_users %}
+<option value="{{ user.id }}">{{ user.username }}</option>
+{% endfor %}
+</select>
+
+<input type="date" name="assigned_date">
+<input type="date" name="due_date">
+
+<button class="btn btn-primary">Přidat úkol</button>
+</form>
+</div>
+
+{% for task in tasks %}
+<div class="card task" data-approved="{{ task.admin_confirmed|int }}">
+
+<div onclick="toggleDetail({{ task.id }})">
+<strong>{{ task.title }}</strong><br>
+Přiřazeno: {{ user_map.get(task.assigned_to_user_id, '—') }}
+</div>
+
+<div id="detail-{{ task.id }}" class="hidden">
+
+<form method="POST" action="{{ url_for('update_task', task_id=task.id) }}">
+<input name="title" value="{{ task.title }}">
+<textarea name="description">{{ task.description }}</textarea>
+
+<select name="assigned_to_user_id">
+<option value="">Nepřiřazeno</option>
+{% for user in assignable_users %}
+<option value="{{ user.id }}" {% if task.assigned_to_user_id == user.id %}selected{% endif %}>
+{{ user.username }}
+</option>
+{% endfor %}
+</select>
+
+<input type="date" name="assigned_date" value="{{ task.assigned_date }}">
+<input type="date" name="due_date" value="{{ task.due_date }}">
+
+<button class="btn btn-success">Uložit</button>
+</form>
+
+<form method="POST" action="{{ url_for('approve_task', task_id=task.id) }}">
+<button class="btn btn-primary">Potvrdit</button>
+</form>
+
+<form method="POST" action="{{ url_for('delete_task', task_id=task.id) }}">
+<button class="btn btn-danger">Smazat</button>
+</form>
+
+</div>
+
+</div>
+{% endfor %}
+
+<script>
+function toggleDetail(id){
+document.getElementById("detail-"+id).classList.toggle("hidden");
+}
+
+let showApproved = false;
+
+function toggleApproved(){
+showApproved = !showApproved;
+
+document.querySelectorAll(".task").forEach(el=>{
+const approved = el.dataset.approved == "1";
+el.style.display = (approved && !showApproved) ? "none" : "block";
+});
+}
+
+window.onload = toggleApproved;
+</script>
+
+</body>
+</html>
+⚠️ POSLEDNÍ KROK (nutné)
