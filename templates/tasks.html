@@ -1,149 +1,22 @@
-<!DOCTYPE html>
-<html lang="cs">
-<head>
-    <meta charset="UTF-8">
-    <title>Úkoly</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+class Task(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
 
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#7c3aed">
-    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
 
-    <style>
-        * { box-sizing: border-box; }
+    assigned_date = db.Column(db.Date, nullable=True)
+    due_date = db.Column(db.Date, nullable=True)
 
-        body {
-            margin: 0;
-            padding: 16px;
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            color: #222;
-        }
+    completion_text = db.Column(db.Text, nullable=True)
 
-        .page { max-width: 1100px; margin: 0 auto; }
+    status = db.Column(db.String(30), nullable=False, default="new")
+    admin_confirmed = db.Column(db.Boolean, nullable=False, default=False)
 
-        h1 {
-            text-align: center;
-            margin-top: 0;
-            margin-bottom: 18px;
-            font-size: 28px;
-        }
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    assigned_to_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    completed_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
 
-        .topbar {
-            display: grid;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-
-        .card {
-            background: #fff;
-            border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 18px;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-        }
-
-        .section-title {
-            font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 14px;
-        }
-
-        .btn {
-            display: inline-block;
-            width: 100%;
-            border: none;
-            border-radius: 12px;
-            padding: 12px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            text-align: center;
-            margin-top: 8px;
-        }
-
-        .btn-primary { background: #2563eb; color: white; }
-        .btn-secondary { background: #64748b; color: white; }
-
-        .task-list { display: grid; gap: 14px; }
-
-        .task-card {
-            border: 1px solid #e5e7eb;
-            border-radius: 14px;
-            padding: 14px;
-            background: #fafafa;
-        }
-
-        .badge {
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            display: inline-block;
-        }
-
-        .badge-approved { background: #dcfce7; color: #166534; }
-        .badge-new { background: #dbeafe; color: #1d4ed8; }
-
-    </style>
-</head>
-<body>
-<div class="page">
-
-<h1>Úkoly</h1>
-
-<div class="topbar">
-    <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
-    <a class="btn btn-secondary" href="{{ url_for('logout') }}">Odhlásit se</a>
-</div>
-
-<!-- 🔘 NOVÉ TLAČÍTKO -->
-<button class="btn btn-secondary" onclick="toggleApproved()">
-    Zobrazit / skrýt potvrzené úkoly
-</button>
-
-<div class="task-list">
-
-{% for task in tasks %}
-<div class="task-card"
-     data-approved="{{ '1' if task.admin_confirmed else '0' }}">
-
-    {% if task.admin_confirmed %}
-        <span class="badge badge-approved">Potvrzený adminem</span>
-    {% else %}
-        <span class="badge badge-new">Aktivní</span>
-    {% endif %}
-
-    <div><strong>{{ task.title }}</strong></div>
-
-</div>
-{% endfor %}
-
-</div>
-
-</div>
-
-<script>
-let showApproved = false;
-
-function toggleApproved() {
-    showApproved = !showApproved;
-
-    document.querySelectorAll(".task-card").forEach(el => {
-        const approved = el.dataset.approved === "1";
-
-        if (approved && !showApproved) {
-            el.style.display = "none";
-        } else {
-            el.style.display = "block";
-        }
-    });
-}
-
-// defaultně skryjeme potvrzené
-window.onload = () => toggleApproved();
-</script>
-
-</body>
-</html>
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    admin_confirmed_at = db.Column(db.DateTime, nullable=True)
