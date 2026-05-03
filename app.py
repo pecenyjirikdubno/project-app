@@ -272,6 +272,7 @@ class Task(db.Model):
     admin_confirmed = db.Column(db.Boolean, nullable=False, default=False)
 
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    assigned_to_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     completed_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
 
     created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
@@ -487,6 +488,7 @@ def export_backup_data():
                 "status": t.status,
                 "admin_confirmed": t.admin_confirmed,
                 "created_by_user_id": t.created_by_user_id,
+                "assigned_to_user_id": t.assigned_to_user_id,
                 "completed_by_user_id": t.completed_by_user_id,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
                 "updated_at": t.updated_at.isoformat() if t.updated_at else None,
@@ -643,6 +645,7 @@ def restore_backup_data(data):
             status=item.get("status", "new"),
             admin_confirmed=item.get("admin_confirmed", False),
             created_by_user_id=item["created_by_user_id"],
+            assigned_to_user_id=item.get("assigned_to_user_id"),
             completed_by_user_id=item.get("completed_by_user_id"),
             created_at=parse_datetime_value(item.get("created_at")) or now_local(),
             updated_at=parse_datetime_value(item.get("updated_at")) or now_local(),
@@ -1397,20 +1400,47 @@ def tasks():
     if not user_app_access_required():
         return redirect(url_for("qr_display"))
 
-    tasks_data = Task.query.order_by(Task.admin_confirmed.asc(), Task.due_date.asc().nullslast(), Task.id.desc()).all()
+    if current_user.role == "admin":
+        tasks_data = Task.query.order_by(
+            Task.admin_confirmed.asc(),
+            Task.due_date.asc().nullslast(),
+            Task.id.desc()
+        ).all()
+    else:
+        tasks_data = Task.query.filter(
+            db.or_(
+                Task.created_by_user_id == current_user.id,
+                Task.assigned_to_user_id == current_user.id,
+                Task.assigned_to_user_id.is_(None),
+            )
+        ).order_by(
+            Task.admin_confirmed.asc(),
+            Task.due_date.asc().nullslast(),
+            Task.id.desc()
+        ).all()
 
     user_ids = set()
     for item in tasks_data:
         if item.created_by_user_id:
             user_ids.add(item.created_by_user_id)
+        if item.assigned_to_user_id:
+            user_ids.add(item.assigned_to_user_id)
         if item.completed_by_user_id:
             user_ids.add(item.completed_by_user_id)
 
     users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
     user_map = {u.id: u.username for u in users}
 
-    return render_template("tasks.html", tasks=tasks_data, user_map=user_map)
+    assignable_users = User.query.filter(
+        User.role.in_(["user", "admin"])
+    ).order_by(User.username.asc()).all() if current_user.role == "admin" else []
 
+    return render_template(
+        "tasks.html",
+        tasks=tasks_data,
+        user_map=user_map,
+        assignable_users=assignable_users,
+    )
 
 @app.route("/tasks/create", methods=["POST"])
 @login_required
@@ -1423,6 +1453,21 @@ def create_task():
     assigned_date = parse_date_yyyy_mm_dd(request.form.get("assigned_date", "").strip())
     due_date = parse_date_yyyy_mm_dd(request.form.get("due_date", "").strip())
     completion_text = request.form.get("completion_text", "").strip()
+
+    assigned_to_user_id = None
+    if current_user.role == "admin":
+        assigned_to_raw = request.form.get("assigned_to_user_id", "").strip()
+        if assigned_to_raw:
+            try:
+                assigned_to_user_id = int(assigned_to_raw)
+            except ValueError:
+                assigned_to_user_id = None
+
+            if assigned_to_user_id:
+                target_user = User.query.get(assigned_to_user_id)
+                if not target_user or target_user.role == "qr_terminal":
+                    flash("Vyber platného uživatele pro přiřazení úkolu.", "error")
+                    return redirect(url_for("tasks"))
 
     if not title:
         flash("Vyplň název úkolu.", "error")
@@ -1448,6 +1493,7 @@ def create_task():
         status=status,
         admin_confirmed=admin_confirmed,
         created_by_user_id=current_user.id,
+        assigned_to_user_id=assigned_to_user_id,
         completed_by_user_id=completed_by_user_id,
         created_at=now_local(),
         updated_at=now_local(),
@@ -1461,6 +1507,50 @@ def create_task():
     flash("Úkol byl vytvořen.", "success")
     return redirect(url_for("tasks"))
 
+@app.route("/tasks/update/<int:task_id>", methods=["POST"])
+@login_required
+def update_task(task_id):
+    if not admin_required():
+        return redirect(url_for("tasks"))
+
+    task = Task.query.get_or_404(task_id)
+
+    title = request.form.get("title", "").strip()
+    if not title:
+        flash("Vyplň název úkolu.", "error")
+        return redirect(url_for("tasks"))
+
+    assigned_to_user_id = None
+    assigned_to_raw = request.form.get("assigned_to_user_id", "").strip()
+    if assigned_to_raw:
+        try:
+            assigned_to_user_id = int(assigned_to_raw)
+        except ValueError:
+            assigned_to_user_id = None
+
+        if assigned_to_user_id:
+            target_user = User.query.get(assigned_to_user_id)
+            if not target_user or target_user.role == "qr_terminal":
+                flash("Vyber platného uživatele pro přiřazení úkolu.", "error")
+                return redirect(url_for("tasks"))
+
+    completion_text = request.form.get("completion_text", "").strip()
+
+    task.title = title
+    task.description = request.form.get("description", "").strip()
+    task.assigned_date = parse_date_yyyy_mm_dd(request.form.get("assigned_date", "").strip())
+    task.due_date = parse_date_yyyy_mm_dd(request.form.get("due_date", "").strip())
+    task.assigned_to_user_id = assigned_to_user_id
+    task.completion_text = completion_text if completion_text else None
+    task.updated_at = now_local()
+
+    if completion_text and task.status == "new":
+        task.status = "submitted"
+
+    db.session.commit()
+
+    flash("Úkol upraven.", "success")
+    return redirect(url_for("tasks"))
 
 @app.route("/tasks/complete/<int:task_id>", methods=["POST"])
 @login_required
