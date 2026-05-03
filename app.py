@@ -217,6 +217,16 @@ class JobRow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.Integer, db.ForeignKey("job.id"), nullable=False)
 
+    # Typ záznamu:
+    # material = materiálový řádek
+    # km = samostatný záznam km
+    # travel_time = samostatný záznam času na cestě
+    # work_hours = samostatný záznam odpracovaných hodin
+    entry_type = db.Column(db.String(30), nullable=False, default="material")
+
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+
     date = db.Column(db.String(20))
     material_id = db.Column(db.String(50))
     material_name = db.Column(db.String(200))
@@ -438,6 +448,9 @@ def export_backup_data():
             {
                 "id": r.id,
                 "job_id": r.job_id,
+                "entry_type": r.entry_type,
+                "created_by_user_id": r.created_by_user_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
                 "date": r.date,
                 "material_id": r.material_id,
                 "material_name": r.material_name,
@@ -581,6 +594,9 @@ def restore_backup_data(data):
         row = JobRow(
             id=item["id"],
             job_id=item["job_id"],
+            entry_type=item.get("entry_type") or "material",
+            created_by_user_id=item.get("created_by_user_id"),
+            created_at=parse_datetime_value(item.get("created_at")) or now_local(),
             date=item.get("date"),
             material_id=item.get("material_id"),
             material_name=item.get("material_name"),
@@ -1516,14 +1532,32 @@ def materials():
 
     jobs = Job.query.order_by(Job.id.desc()).all()
 
-    for job in jobs:
-        job.rows = JobRow.query.filter_by(job_id=job.id).all()
-        job.total_quantity = sum((r.quantity or 0) for r in job.rows)
-        job.total_km = sum((r.km or 0) for r in job.rows)
-        job.total_travel_time = sum((r.travel_time or 0) for r in job.rows)
-        job.total_work_hours = sum((r.work_hours or 0) for r in job.rows)
+    all_user_ids = set()
 
-    return render_template("materials.html", jobs=jobs)
+    for job in jobs:
+        job.rows = JobRow.query.filter_by(job_id=job.id).order_by(JobRow.id.desc()).all()
+
+        job.material_rows = [
+            r for r in job.rows
+            if (r.entry_type or "material") == "material"
+        ]
+        job.km_rows = [r for r in job.rows if r.entry_type == "km"]
+        job.travel_time_rows = [r for r in job.rows if r.entry_type == "travel_time"]
+        job.work_hours_rows = [r for r in job.rows if r.entry_type == "work_hours"]
+
+        for row in job.rows:
+            if row.created_by_user_id:
+                all_user_ids.add(row.created_by_user_id)
+
+        job.total_quantity = sum((r.quantity or 0) for r in job.material_rows)
+        job.total_km = sum((r.km or 0) for r in job.km_rows)
+        job.total_travel_time = sum((r.travel_time or 0) for r in job.travel_time_rows)
+        job.total_work_hours = sum((r.work_hours or 0) for r in job.work_hours_rows)
+
+    users = User.query.filter(User.id.in_(all_user_ids)).all() if all_user_ids else []
+    user_map = {u.id: u.username for u in users}
+
+    return render_template("materials.html", jobs=jobs, user_map=user_map, datetime_to_str=datetime_to_str)
 
 
 @app.route("/create_job", methods=["POST"])
@@ -1545,6 +1579,181 @@ def create_job():
     return redirect(url_for("materials"))
 
 
+@app.route("/add_material_row/<int:job_id>", methods=["POST"])
+@login_required
+def add_material_row(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    job = Job.query.get(job_id)
+
+    if not job or job.closed:
+        return redirect(url_for("materials"))
+
+    material_id = request.form.get("material_id", "").strip()
+    quantity_raw = request.form.get("quantity", "").strip()
+
+    if not material_id:
+        flash("Vyplň ID materiálu.", "error")
+        return redirect(url_for("materials"))
+
+    try:
+        quantity = float(quantity_raw.replace(",", ".") if quantity_raw else 0)
+    except ValueError:
+        flash("Množství musí být číslo.", "error")
+        return redirect(url_for("materials"))
+
+    if quantity <= 0:
+        flash("Množství musí být větší než 0.", "error")
+        return redirect(url_for("materials"))
+
+    current_dt = now_local()
+
+    new_row = JobRow(
+        job_id=job_id,
+        entry_type="material",
+        created_by_user_id=current_user.id,
+        created_at=current_dt,
+        date=current_dt.date().isoformat(),
+        material_id=material_id,
+        material_name="",
+        quantity=quantity,
+        document_number="",
+        km=0,
+        travel_time=0,
+        work_hours=0,
+    )
+
+    db.session.add(new_row)
+    db.session.commit()
+
+    flash("Materiál byl přidán.", "success")
+    return redirect(url_for("materials"))
+
+
+@app.route("/add_km_row/<int:job_id>", methods=["POST"])
+@login_required
+def add_km_row(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    job = Job.query.get(job_id)
+    if not job or job.closed:
+        return redirect(url_for("materials"))
+
+    try:
+        km = float((request.form.get("km") or "0").replace(",", "."))
+    except ValueError:
+        flash("Km musí být číslo.", "error")
+        return redirect(url_for("materials"))
+
+    if km <= 0:
+        flash("Km musí být větší než 0.", "error")
+        return redirect(url_for("materials"))
+
+    current_dt = now_local()
+    row = JobRow(
+        job_id=job_id,
+        entry_type="km",
+        created_by_user_id=current_user.id,
+        created_at=current_dt,
+        date=current_dt.date().isoformat(),
+        material_id="",
+        material_name="",
+        quantity=0,
+        document_number="",
+        km=km,
+        travel_time=0,
+        work_hours=0,
+    )
+    db.session.add(row)
+    db.session.commit()
+    flash("Km byly přidány.", "success")
+    return redirect(url_for("materials"))
+
+
+@app.route("/add_travel_time_row/<int:job_id>", methods=["POST"])
+@login_required
+def add_travel_time_row(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    job = Job.query.get(job_id)
+    if not job or job.closed:
+        return redirect(url_for("materials"))
+
+    try:
+        travel_time = float((request.form.get("travel_time") or "0").replace(",", "."))
+    except ValueError:
+        flash("Čas na cestě musí být číslo.", "error")
+        return redirect(url_for("materials"))
+
+    if travel_time <= 0:
+        flash("Čas na cestě musí být větší než 0.", "error")
+        return redirect(url_for("materials"))
+
+    current_dt = now_local()
+    row = JobRow(
+        job_id=job_id,
+        entry_type="travel_time",
+        created_by_user_id=current_user.id,
+        created_at=current_dt,
+        date=current_dt.date().isoformat(),
+        material_id="",
+        material_name="",
+        quantity=0,
+        document_number="",
+        km=0,
+        travel_time=travel_time,
+        work_hours=0,
+    )
+    db.session.add(row)
+    db.session.commit()
+    flash("Čas na cestě byl přidán.", "success")
+    return redirect(url_for("materials"))
+
+
+@app.route("/add_work_hours_row/<int:job_id>", methods=["POST"])
+@login_required
+def add_work_hours_row(job_id):
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    job = Job.query.get(job_id)
+    if not job or job.closed:
+        return redirect(url_for("materials"))
+
+    try:
+        work_hours = float((request.form.get("work_hours") or "0").replace(",", "."))
+    except ValueError:
+        flash("Odpracované hodiny musí být číslo.", "error")
+        return redirect(url_for("materials"))
+
+    if work_hours <= 0:
+        flash("Odpracované hodiny musí být větší než 0.", "error")
+        return redirect(url_for("materials"))
+
+    current_dt = now_local()
+    row = JobRow(
+        job_id=job_id,
+        entry_type="work_hours",
+        created_by_user_id=current_user.id,
+        created_at=current_dt,
+        date=current_dt.date().isoformat(),
+        material_id="",
+        material_name="",
+        quantity=0,
+        document_number="",
+        km=0,
+        travel_time=0,
+        work_hours=work_hours,
+    )
+    db.session.add(row)
+    db.session.commit()
+    flash("Odpracované hodiny byly přidány.", "success")
+    return redirect(url_for("materials"))
+
+
 @app.route("/add_row/<int:job_id>", methods=["POST"])
 @login_required
 def add_row(job_id):
@@ -1558,7 +1767,10 @@ def add_row(job_id):
 
     new_row = JobRow(
         job_id=job_id,
-        date="",
+        entry_type="material",
+        created_by_user_id=current_user.id,
+        created_at=now_local(),
+        date=today_local().isoformat(),
         material_id="",
         material_name="",
         quantity=0,
@@ -1623,33 +1835,47 @@ def export(job_id):
     if not user_app_access_required():
         return redirect(url_for("qr_display"))
 
-    rows = JobRow.query.filter_by(job_id=job_id).all()
+    job = Job.query.get_or_404(job_id)
+    rows = JobRow.query.filter_by(job_id=job_id).order_by(JobRow.created_at.asc(), JobRow.id.asc()).all()
+
+    user_ids = {r.created_by_user_id for r in rows if r.created_by_user_id}
+    users = User.query.filter(User.id.in_(user_ids)).all() if user_ids else []
+    user_map = {u.id: u.username for u in users}
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Materiál"
+    ws.title = "Zakazka"
 
     ws.append([
-        "Datum",
+        "Zakázka",
+        "Typ záznamu",
+        "Datum a čas záznamu",
+        "Uživatel",
         "ID materiálu",
-        "Materiál",
         "Množství",
-        "Číslo dokladu",
         "Km",
         "Čas na cestě",
         "Odpracované hodiny",
     ])
 
+    type_labels = {
+        "material": "Materiál",
+        "km": "Km",
+        "travel_time": "Čas na cestě",
+        "work_hours": "Odpracované hodiny",
+    }
+
     for r in rows:
         ws.append([
-            r.date,
-            r.material_id,
-            r.material_name,
-            r.quantity,
-            r.document_number,
-            r.km,
-            r.travel_time,
-            r.work_hours,
+            job.name,
+            type_labels.get(r.entry_type or "material", r.entry_type or "material"),
+            datetime_to_str(r.created_at),
+            user_map.get(r.created_by_user_id, ""),
+            r.material_id if (r.entry_type or "material") == "material" else "",
+            r.quantity if (r.entry_type or "material") == "material" else "",
+            r.km if r.entry_type == "km" else "",
+            r.travel_time if r.entry_type == "travel_time" else "",
+            r.work_hours if r.entry_type == "work_hours" else "",
         ])
 
     output = io.BytesIO()
@@ -1662,7 +1888,6 @@ def export(job_id):
         download_name=f"zakazka_{job_id}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
 
 @app.route("/attendance")
 @login_required
