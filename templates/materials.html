@@ -347,7 +347,7 @@
                             Zadat QR ručně
                         </button>
                         <div class="qr-help">
-                            Formát: JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m nebo jen JZ00001
+                            Podporuje: JZ00001, JZ00001|výdejka|název|5|m nebo QR text obsahující ID JZ00001.
                         </div>
                     </div>
                 </div>
@@ -476,30 +476,127 @@ let html5QrCode = null;
 let currentScanJobId = null;
 let showClosed = false;
 
+function normalizeText(value) {
+    return (value || "")
+        .toString()
+        .trim()
+        .replace(/\s+/g, " ");
+}
+
 function normalizeMaterialId(value) {
-    return (value || "").trim().toUpperCase();
+    return normalizeText(value).toUpperCase().replace(/\s/g, "");
+}
+
+function findMaterialIdInText(value) {
+    const text = normalizeText(value).toUpperCase();
+
+    // Najde ID materiálu kdekoliv v QR textu:
+    // JZ00001, JZ-00001, JZ 00001
+    const match = text.match(/JZ[\s-]*[0-9A-Z]+/);
+
+    if (!match) {
+        return "";
+    }
+
+    return normalizeMaterialId(match[0]).replace("-", "");
+}
+
+function parseQuantity(value) {
+    if (!value) return "";
+
+    const cleaned = value
+        .toString()
+        .trim()
+        .replace(",", ".")
+        .replace(/[^\d.:-]/g, "");
+
+    const numberMatch = cleaned.match(/\d+(\.\d+)?/);
+    return numberMatch ? numberMatch[0] : "";
+}
+
+function parseMaterialQr(code) {
+    const raw = normalizeText(code);
+
+    if (!raw) {
+        return {
+            ok: false,
+            materialId: "",
+            quantity: "",
+            message: "QR kód je prázdný."
+        };
+    }
+
+    const parts = raw.split("|").map(item => normalizeText(item));
+
+    let materialId = "";
+    let quantity = "";
+
+    // Standardní formát z výdejky:
+    // JZ00001|1257383008|kabel CYKY-J 3x1,5|5|m
+    if (parts.length >= 1) {
+        materialId = findMaterialIdInText(parts[0]);
+    }
+
+    if (!materialId) {
+        materialId = findMaterialIdInText(raw);
+    }
+
+    if (parts.length >= 4) {
+        quantity = parseQuantity(parts[3]);
+    }
+
+    // Pokud QR obsahuje jen dvě části např. JZ00001|5
+    if (!quantity && parts.length >= 2) {
+        quantity = parseQuantity(parts[1]);
+    }
+
+    // Nouzově najdeme množství po slově MNOZSTVI / MNOŽSTVÍ / QTY
+    if (!quantity) {
+        const qtyMatch = raw.match(/(?:MNOŽSTVÍ|MNOZSTVI|QTY|KS|MNOZ)\s*[:=]?\s*([0-9]+(?:[,.][0-9]+)?)/i);
+        if (qtyMatch) {
+            quantity = parseQuantity(qtyMatch[1]);
+        }
+    }
+
+    if (!materialId) {
+        return {
+            ok: false,
+            materialId: "",
+            quantity: "",
+            message: "V QR kódu nebylo nalezeno ID materiálu ve formátu JZxxxxx."
+        };
+    }
+
+    return {
+        ok: true,
+        materialId: materialId,
+        quantity: quantity,
+        message: ""
+    };
 }
 
 function fillMaterialFromQr(jobId, code) {
-    if (!code) return;
+    const result = parseMaterialQr(code);
 
-    const parts = code.split("|").map(item => item.trim());
+    if (!result.ok) {
+        alert(result.message || "Neplatný formát QR / ID materiálu.");
+        return;
+    }
 
     const materialIdInput = document.getElementById(`material_id_${jobId}`);
     const quantityInput = document.getElementById(`quantity_${jobId}`);
 
-    if (parts.length >= 5) {
-        materialIdInput.value = normalizeMaterialId(parts[0]);
-        quantityInput.value = parts[3].replace(",", ".");
-        return;
+    if (materialIdInput) {
+        materialIdInput.value = result.materialId;
     }
 
-    if (parts.length >= 1 && normalizeMaterialId(parts[0]).startsWith("JZ")) {
-        materialIdInput.value = normalizeMaterialId(parts[0]);
-        return;
+    if (quantityInput && result.quantity) {
+        quantityInput.value = result.quantity;
     }
 
-    alert("Neplatný formát QR / ID materiálu.");
+    if (quantityInput && !result.quantity) {
+        quantityInput.focus();
+    }
 }
 
 function manualQrInput(jobId) {
