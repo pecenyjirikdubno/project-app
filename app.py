@@ -363,9 +363,7 @@ def user_app_access_required():
 
 
 def can_user_edit_attendance(record: Attendance) -> bool:
-    if current_user.role == "admin":
-        return True
-    return record.user_id == current_user.id and record.work_date == today_local()
+    return current_user.role == "admin"
 
 
 def redirect_after_login():
@@ -2100,8 +2098,8 @@ def attendance():
 @app.route("/attendance/create_day", methods=["POST"])
 @login_required
 def create_attendance_day():
-    if not user_app_access_required():
-        return redirect(url_for("qr_display"))
+    if not admin_required():
+        return redirect(url_for("attendance"))
 
     work_date_raw = request.form.get("work_date", "").strip()
 
@@ -2134,7 +2132,6 @@ def create_attendance_day():
 
     flash("Den docházky byl vytvořen.", "success")
     return redirect(url_for("attendance"))
-
 
 @app.route("/attendance/scan-qr", methods=["POST"])
 @login_required
@@ -2221,43 +2218,8 @@ def attendance_scan_qr():
 @app.route("/attendance/user_update/<int:record_id>", methods=["POST"])
 @login_required
 def attendance_user_update(record_id):
-    if not user_app_access_required():
-        return redirect(url_for("qr_display"))
-
-    record = Attendance.query.get_or_404(record_id)
-
-    if not can_user_edit_attendance(record):
-        flash("Tento záznam už nemůžeš upravovat.", "error")
-        return redirect(url_for("attendance"))
-
-    start_time_raw = request.form.get("start_time", "").strip()
-    end_time_raw = request.form.get("end_time", "").strip()
-
-    new_start = parse_time_hhmm(start_time_raw)
-    new_end = parse_time_hhmm(end_time_raw)
-
-    if start_time_raw and new_start is None:
-        flash("Neplatný čas nástupu.", "error")
-        return redirect(url_for("attendance"))
-
-    if end_time_raw and new_end is None:
-        flash("Neplatný čas ukončení.", "error")
-        return redirect(url_for("attendance"))
-
-    if record.start_time != new_start and new_start is not None:
-        record.start_recorded_at = now_local()
-
-    if record.end_time != new_end and new_end is not None:
-        record.end_recorded_at = now_local()
-
-    record.start_time = new_start
-    record.end_time = new_end
-    record.updated_at = now_local()
-
-    db.session.commit()
-    flash("Docházka uložena.", "success")
+    flash("Ruční úprava docházky je zakázána. Docházku zapisuj pouze načtením QR kódu.", "error")
     return redirect(url_for("attendance"))
-
 
 @app.route("/attendance/admin_update/<int:record_id>", methods=["POST"])
 @login_required
