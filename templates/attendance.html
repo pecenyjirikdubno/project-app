@@ -218,18 +218,27 @@
       {% endif %}
     {% endwith %}
 
-    {% if current_user.role != 'admin' %}
-    <div class="card">
-        <div class="today-box">
-            <div class="info-line"><strong>Dnešní stav:</strong></div>
-            <div class="info-line">
-                <strong>Příchod:</strong>
-                {% if today_record and today_record.start_time %}
-                    {{ time_to_str(today_record.start_time) }}
-                {% else %}
-                    —
-                {% endif %}
-            </div>
+   {% if current_user.role == 'admin' %}
+<div class="card">
+    <form method="POST" action="{{ url_for('create_attendance_day') }}">
+
+        <div class="field-group">
+            <label>Uživatel</label>
+            <select name="user_id" required>
+                {% for user in users %}
+                    {% if user.role != 'qr_terminal' %}
+                        <option value="{{ user.id }}">
+                            {{ user.username }}
+                        </option>
+                    {% endif %}
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="field-group">
+            <label>Datum</label>
+            <input type="date" name="work_date" value="{{ today }}" required>
+        </div>
             <div class="info-line">
                 <strong>Odchod:</strong>
                 {% if today_record and today_record.end_time %}
