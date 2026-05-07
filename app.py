@@ -2089,48 +2089,60 @@ def attendance():
         today=today_local().isoformat(),
         selected_month=f"{year:04d}-{month:02d}",
         user_map=user_map,
+        users=User.query.order_by(User.username.asc()).all(),
         can_user_edit_attendance=can_user_edit_attendance,
         time_to_str=time_to_str,
         today_record=today_record,
     )
 
-
-@app.route("/attendance/create_day", methods=["POST"])
+@app.route("/attendance/create-day", methods=["POST"])
 @login_required
 def create_attendance_day():
     if not admin_required():
         return redirect(url_for("attendance"))
 
-    work_date_raw = request.form.get("work_date", "").strip()
+    work_date = parse_date_yyyy_mm_dd(
+        request.form.get("work_date", "").strip()
+    )
 
-    if not work_date_raw:
-        flash("Vyber datum.", "error")
+    user_id_raw = request.form.get("user_id", "").strip()
+
+    try:
+        user_id = int(user_id_raw)
+    except ValueError:
+        flash("Neplatný uživatel.", "error")
         return redirect(url_for("attendance"))
 
-    work_date = parse_date_yyyy_mm_dd(work_date_raw)
+    user = User.query.get(user_id)
+
+    if not user:
+        flash("Uživatel neexistuje.", "error")
+        return redirect(url_for("attendance"))
+
     if not work_date:
-        flash("Neplatné datum.", "error")
+        flash("Vyplň datum.", "error")
         return redirect(url_for("attendance"))
 
     existing = Attendance.query.filter_by(
-        user_id=current_user.id,
+        user_id=user_id,
         work_date=work_date,
     ).first()
 
     if existing:
-        flash("Záznam pro toto datum už existuje.", "error")
+        flash("Docházka pro tento den již existuje.", "error")
         return redirect(url_for("attendance"))
 
-    record = Attendance(
-        user_id=current_user.id,
+    attendance = Attendance(
+        user_id=user_id,
         work_date=work_date,
         created_at=now_local(),
         updated_at=now_local(),
     )
-    db.session.add(record)
+
+    db.session.add(attendance)
     db.session.commit()
 
-    flash("Den docházky byl vytvořen.", "success")
+    flash("Docházka byla vytvořena.", "success")
     return redirect(url_for("attendance"))
 
 @app.route("/attendance/scan-qr", methods=["POST"])
