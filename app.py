@@ -26,7 +26,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import io
 import json
@@ -34,6 +34,14 @@ import os
 import time
 import hmac
 import hashlib
+
+try:
+    from pywebpush import webpush, WebPushException
+except Exception:
+    webpush = None
+
+    class WebPushException(Exception):
+        pass
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "secret-key-change-this")
@@ -82,6 +90,15 @@ WORK_TRIP_PURPOSE_OPTIONS = [
     "jednání",
     "nákup materiálu",
 ]
+
+# =====================
+# PUSH NOTIFIKACE
+# =====================
+
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIMS_EMAIL", "mailto:info@jzelektro.cz")
+CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
 
 def now_local():
@@ -256,6 +273,16 @@ class AppSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     setting_key = db.Column(db.String(100), unique=True, nullable=False)
     setting_value = db.Column(db.String(255), nullable=True)
+
+
+class PushSubscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    endpoint = db.Column(db.Text, unique=True, nullable=False)
+    subscription_json = db.Column(db.Text, nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
 
 
 class Task(db.Model):
@@ -860,6 +887,143 @@ def list_report_files():
     return files
 
 
+
+
+# =====================
+# PUSH NOTIFIKACE HELPERS
+# =====================
+
+def push_is_configured() -> bool:
+    return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and webpush is not None)
+
+
+def push_payload(title: str, body: str, url: str = "/") -> str:
+    return json.dumps({
+        "title": title,
+        "body": body,
+        "url": url,
+        "icon": "/static/icons/icon-192.png",
+        "badge": "/static/icons/icon-192.png",
+    }, ensure_ascii=False)
+
+
+def send_push_to_subscription(subscription: PushSubscription, title: str, body: str, url: str = "/") -> bool:
+    if not push_is_configured() or not subscription.enabled:
+        return False
+
+    try:
+        webpush(
+            subscription_info=json.loads(subscription.subscription_json),
+            data=push_payload(title, body, url),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
+        )
+        return True
+    except WebPushException as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code in {404, 410}:
+            subscription.enabled = False
+            subscription.updated_at = now_local()
+            db.session.commit()
+        return False
+    except Exception:
+        return False
+
+
+def send_push_to_user(user_id: int, title: str, body: str, url: str = "/") -> int:
+    subscriptions = PushSubscription.query.filter_by(
+        user_id=user_id,
+        enabled=True,
+    ).all()
+
+    sent = 0
+    for subscription in subscriptions:
+        if send_push_to_subscription(subscription, title, body, url):
+            sent += 1
+    return sent
+
+
+def send_push_to_users(user_ids, title: str, body: str, url: str = "/") -> int:
+    sent = 0
+    for user_id in set(user_ids):
+        sent += send_push_to_user(user_id, title, body, url)
+    return sent
+
+
+def notify_new_task(task: Task) -> int:
+    title = "Nový úkol"
+    body = f"Byl Vám přidělen úkol: {task.title}"
+    url = url_for("tasks")
+
+    if task.assigned_to_user_id:
+        return send_push_to_user(task.assigned_to_user_id, title, body, url)
+
+    users = User.query.filter(User.role.in_(["user", "admin"])).all()
+    return send_push_to_users([user.id for user in users], title, body, url)
+
+
+def check_unclosed_attendance_notifications() -> int:
+    current_dt = now_local()
+
+    if current_dt.hour < 18:
+        return 0
+
+    today = today_local()
+    records = Attendance.query.filter(
+        Attendance.work_date == today,
+        Attendance.start_time.isnot(None),
+        Attendance.end_time.is_(None),
+    ).all()
+
+    notified = 0
+    for record in records:
+        setting_key = f"push_attendance_18_{today.isoformat()}_{record.user_id}"
+        if get_setting(setting_key) == "1":
+            continue
+
+        send_push_to_user(
+            record.user_id,
+            "Neukončená docházka",
+            "Nemáte ukončenou dnešní docházku. Prosím načtěte QR kód při odchodu.",
+            url_for("attendance"),
+        )
+        set_setting(setting_key, "1")
+        notified += 1
+
+    return notified
+
+
+def check_open_work_trip_notifications() -> int:
+    current_dt = now_local()
+    trips = WorkTrip.query.filter_by(status="open").all()
+
+    notified = 0
+    for trip in trips:
+        start_time = trip.start_time
+        if not start_time:
+            continue
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=APP_TZ)
+
+        if current_dt - start_time < timedelta(hours=2):
+            continue
+
+        setting_key = f"push_work_trip_2h_{trip.id}"
+        if get_setting(setting_key) == "1":
+            continue
+
+        send_push_to_user(
+            trip.user_id,
+            "Otevřená pracovní cesta",
+            "Máte stále otevřenou pracovní cestu. Nezapomeňte ji po návratu ukončit.",
+            url_for("work_trips"),
+        )
+        set_setting(setting_key, "1")
+        notified += 1
+
+    return notified
+
+
 @app.route("/manifest.json")
 def manifest():
     return send_from_directory(".", "manifest.json", mimetype="application/manifest+json")
@@ -868,6 +1032,108 @@ def manifest():
 @app.route("/service-worker.js")
 def service_worker():
     return send_from_directory(".", "service-worker.js", mimetype="application/javascript")
+
+
+
+
+@app.route("/push/public-key")
+@login_required
+def push_public_key():
+    return jsonify({
+        "publicKey": VAPID_PUBLIC_KEY,
+        "configured": push_is_configured(),
+    })
+
+
+@app.route("/push/subscribe", methods=["POST"])
+@login_required
+def push_subscribe():
+    if not user_app_access_required():
+        return jsonify({"success": False, "message": "QR terminál notifikace nepoužívá."}), 403
+
+    if not push_is_configured():
+        return jsonify({
+            "success": False,
+            "message": "Push notifikace nejsou nakonfigurované. Nastavte VAPID proměnné v Railway.",
+        }), 400
+
+    subscription = request.get_json(silent=True) or {}
+    endpoint = subscription.get("endpoint")
+
+    if not endpoint:
+        return jsonify({"success": False, "message": "Chybí endpoint zařízení."}), 400
+
+    record = PushSubscription.query.filter_by(endpoint=endpoint).first()
+    if not record:
+        record = PushSubscription(
+            user_id=current_user.id,
+            endpoint=endpoint,
+            subscription_json=json.dumps(subscription),
+            enabled=True,
+            created_at=now_local(),
+            updated_at=now_local(),
+        )
+        db.session.add(record)
+    else:
+        record.user_id = current_user.id
+        record.subscription_json = json.dumps(subscription)
+        record.enabled = True
+        record.updated_at = now_local()
+
+    db.session.commit()
+
+    return jsonify({"success": True, "message": "Notifikace byly povoleny."})
+
+
+@app.route("/push/unsubscribe", methods=["POST"])
+@login_required
+def push_unsubscribe():
+    payload = request.get_json(silent=True) or {}
+    endpoint = payload.get("endpoint")
+
+    if endpoint:
+        record = PushSubscription.query.filter_by(endpoint=endpoint, user_id=current_user.id).first()
+        if record:
+            record.enabled = False
+            record.updated_at = now_local()
+            db.session.commit()
+
+    return jsonify({"success": True, "message": "Notifikace byly vypnuty."})
+
+
+@app.route("/push/test", methods=["POST"])
+@login_required
+def push_test():
+    sent = send_push_to_user(
+        current_user.id,
+        "Test notifikací",
+        "Push notifikace v aplikaci JZ Elektro fungují.",
+        url_for("dashboard"),
+    )
+
+    return jsonify({
+        "success": sent > 0,
+        "sent": sent,
+        "message": "Testovací notifikace odeslána." if sent else "Nepodařilo se odeslat notifikaci. Zkontrolujte povolení notifikací a VAPID klíče.",
+    })
+
+
+@app.route("/cron/check-notifications")
+def cron_check_notifications():
+    if CRON_SECRET:
+        provided = request.args.get("secret") or request.headers.get("X-Cron-Secret")
+        if provided != CRON_SECRET:
+            abort(403)
+
+    attendance_count = check_unclosed_attendance_notifications()
+    work_trips_count = check_open_work_trip_notifications()
+
+    return jsonify({
+        "success": True,
+        "attendance_notifications": attendance_count,
+        "work_trip_notifications": work_trips_count,
+        "checked_at": now_local().isoformat(),
+    })
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1501,6 +1767,8 @@ def create_task():
 
     db.session.add(task)
     db.session.commit()
+
+    notify_new_task(task)
 
     flash("Úkol byl vytvořen.", "success")
     return redirect(url_for("tasks"))
