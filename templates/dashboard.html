@@ -233,6 +233,20 @@
         </div>
     </div>
 
+    <div class="card">
+        <h2 class="admin-title">Push notifikace</h2>
+        <button class="secondary-btn backup-btn" type="button" onclick="enablePushNotifications()">
+            Povolit notifikace
+        </button>
+        <button class="secondary-btn" type="button" onclick="sendTestNotification()">
+            Poslat testovací notifikaci
+        </button>
+        <div class="warning" id="push-status">
+            Notifikace je potřeba jednou povolit v prohlížeči. Budou sloužit pro nové úkoly, neukončenou docházku a otevřené pracovní cesty.
+        </div>
+    </div>
+
+
     {% if current_user.role == 'admin' %}
     <div class="card">
         <h2 class="admin-title">QR terminál docházky</h2>
@@ -299,9 +313,90 @@
 </div>
 
 <script>
+let serviceWorkerRegistration = null;
+
+function setPushStatus(message) {
+  const box = document.getElementById("push-status");
+  if (box) {
+    box.textContent = message;
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
+async function enablePushNotifications() {
+  if (!("serviceWorker" in navigator)) {
+    setPushStatus("Tento prohlížeč nepodporuje service worker.");
+    return;
+  }
+
+  if (!("PushManager" in window)) {
+    setPushStatus("Tento prohlížeč nepodporuje push notifikace.");
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      setPushStatus("Notifikace nebyly povoleny.");
+      return;
+    }
+
+    const keyResponse = await fetch("{{ url_for('push_public_key') }}");
+    const keyData = await keyResponse.json();
+
+    if (!keyData.configured || !keyData.publicKey) {
+      setPushStatus("Push notifikace nejsou nakonfigurované. Nastavte VAPID klíče v Railway.");
+      return;
+    }
+
+    const registration = serviceWorkerRegistration || await navigator.serviceWorker.register("/service-worker.js");
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+    });
+
+    const saveResponse = await fetch("{{ url_for('push_subscribe') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    });
+
+    const saveData = await saveResponse.json();
+    setPushStatus(saveData.message || "Notifikace byly povoleny.");
+  } catch (error) {
+    setPushStatus("Nepodařilo se povolit notifikace. Zkontrolujte nastavení prohlížeče.");
+  }
+}
+
+async function sendTestNotification() {
+  try {
+    const response = await fetch("{{ url_for('push_test') }}", { method: "POST" });
+    const data = await response.json();
+    setPushStatus(data.message || "Test dokončen.");
+  } catch (error) {
+    setPushStatus("Testovací notifikaci se nepodařilo odeslat.");
+  }
+}
+
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", function () {
-    navigator.serviceWorker.register("/service-worker.js");
+  window.addEventListener("load", async function () {
+    try {
+      serviceWorkerRegistration = await navigator.serviceWorker.register("/service-worker.js");
+    } catch (error) {
+      setPushStatus("Service worker se nepodařilo registrovat.");
+    }
   });
 }
 </script>
