@@ -905,7 +905,17 @@ def push_payload(title: str, body: str, url: str = "/") -> str:
         "icon": "/static/icons/icon-192.png",
         "badge": "/static/icons/icon-192.png",
     }, ensure_ascii=False)
+def get_vapid_private_key_for_pywebpush():
+    raw_key = (VAPID_PRIVATE_KEY or "").strip()
 
+    if not raw_key:
+        return None
+
+    # Railway někdy uloží nové řádky jako text "\n"
+    if raw_key.startswith("-----BEGIN"):
+        return raw_key.replace("\\n", "\n")
+
+    return raw_key
 
 def send_push_to_subscription(subscription: PushSubscription, title: str, body: str, url: str = "/") -> bool:
     if not push_is_configured() or not subscription.enabled:
@@ -915,7 +925,7 @@ def send_push_to_subscription(subscription: PushSubscription, title: str, body: 
         webpush(
             subscription_info=json.loads(subscription.subscription_json),
             data=push_payload(title, body, url),
-            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_private_key=get_vapid_private_key_for_pywebpush(),
             vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
         )
         return True
