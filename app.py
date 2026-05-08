@@ -34,6 +34,9 @@ import os
 import time
 import hmac
 import hashlib
+import base64
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 
 try:
     from pywebpush import webpush, WebPushException
@@ -911,11 +914,28 @@ def get_vapid_private_key_for_pywebpush():
     if not raw_key:
         return None
 
-    # Railway někdy uloží nové řádky jako text "\n"
+    # PEM varianta – pokud je správně vložená
     if raw_key.startswith("-----BEGIN"):
         return raw_key.replace("\\n", "\n")
 
-    return raw_key
+    # Krátká Base64URL varianta – doporučeno pro Railway
+    padding = "=" * (-len(raw_key) % 4)
+    private_bytes = base64.urlsafe_b64decode(raw_key + padding)
+
+    private_int = int.from_bytes(private_bytes, "big")
+
+    private_key = ec.derive_private_key(
+        private_int,
+        ec.SECP256R1()
+    )
+
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    return private_pem.decode("utf-8")
 
 def send_push_to_subscription(subscription: PushSubscription, title: str, body: str, url: str = "/") -> bool:
     if not push_is_configured() or not subscription.enabled:
