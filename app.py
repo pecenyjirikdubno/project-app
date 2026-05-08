@@ -922,6 +922,10 @@ def send_push_to_subscription(subscription: PushSubscription, title: str, body: 
         return False
 
     try:
+        print("PUSH DEBUG configured:", push_is_configured(), flush=True)
+        print("PUSH DEBUG public len:", len(VAPID_PUBLIC_KEY or ""), flush=True)
+        print("PUSH DEBUG private starts:", (VAPID_PRIVATE_KEY or "")[:30], flush=True)
+        
         webpush(
             subscription_info=json.loads(subscription.subscription_json),
             data=push_payload(title, body, url),
@@ -930,15 +934,19 @@ def send_push_to_subscription(subscription: PushSubscription, title: str, body: 
         )
         return True
     except WebPushException as exc:
+        print("WEBPUSH ERROR:", str(exc), flush=True)
+        print("WEBPUSH RESPONSE:", getattr(exc, "response", None), flush=True)
+
         status_code = getattr(getattr(exc, "response", None), "status_code", None)
         if status_code in {404, 410}:
             subscription.enabled = False
             subscription.updated_at = now_local()
             db.session.commit()
         return False
-    except Exception:
-        return False
 
+    except Exception as exc:
+        print("PUSH GENERAL ERROR:", repr(exc), flush=True)
+        return False
 
 def send_push_to_user(user_id: int, title: str, body: str, url: str = "/") -> int:
     subscriptions = PushSubscription.query.filter_by(
