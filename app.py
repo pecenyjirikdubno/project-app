@@ -914,28 +914,30 @@ def get_vapid_private_key_for_pywebpush():
     if not raw_key:
         return None
 
-    # PEM varianta – pokud je správně vložená
+    key_path = "/tmp/vapid_private_key.pem"
+
     if raw_key.startswith("-----BEGIN"):
-        return raw_key.replace("\\n", "\n")
+        pem_text = raw_key.replace("\\n", "\n")
+    else:
+        padding = "=" * (-len(raw_key) % 4)
+        private_bytes = base64.urlsafe_b64decode(raw_key + padding)
+        private_int = int.from_bytes(private_bytes, "big")
 
-    # Krátká Base64URL varianta – doporučeno pro Railway
-    padding = "=" * (-len(raw_key) % 4)
-    private_bytes = base64.urlsafe_b64decode(raw_key + padding)
+        private_key = ec.derive_private_key(
+            private_int,
+            ec.SECP256R1()
+        )
 
-    private_int = int.from_bytes(private_bytes, "big")
+        pem_text = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode("utf-8")
 
-    private_key = ec.derive_private_key(
-        private_int,
-        ec.SECP256R1()
-    )
+    with open(key_path, "w", encoding="utf-8") as f:
+        f.write(pem_text)
 
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-
-    return private_pem.decode("utf-8")
+    return key_path
 
 def send_push_to_subscription(subscription: PushSubscription, title: str, body: str, url: str = "/") -> bool:
     if not push_is_configured() or not subscription.enabled:
