@@ -1203,6 +1203,26 @@ def logout():
     return redirect(url_for("login"))
 
 
+def get_pending_tasks_count_for_current_user() -> int:
+    if not current_user.is_authenticated or current_user.role == "qr_terminal":
+        return 0
+
+    base_query = Task.query.filter(
+        Task.admin_confirmed.is_(False),
+        Task.status == "new",
+    )
+
+    if current_user.role == "admin":
+        return base_query.count()
+
+    return base_query.filter(
+        db.or_(
+            Task.assigned_to_user_id == current_user.id,
+            Task.assigned_to_user_id.is_(None),
+        )
+    ).count()
+
+
 @app.route("/")
 @login_required
 def dashboard():
@@ -1213,7 +1233,13 @@ def dashboard():
         ensure_monthly_reports_for_admin()
 
     report_files = list_report_files() if current_user.role == "admin" else []
-    return render_template("dashboard.html", report_files=report_files)
+    pending_tasks_count = get_pending_tasks_count_for_current_user()
+
+    return render_template(
+        "dashboard.html",
+        report_files=report_files,
+        pending_tasks_count=pending_tasks_count,
+    )
 
 
 @app.route("/qr-display")
