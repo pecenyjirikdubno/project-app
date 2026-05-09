@@ -69,6 +69,30 @@
             color: white;
         }
 
+        .task-btn {
+            position: relative;
+        }
+
+        .task-badge {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            min-width: 30px;
+            height: 30px;
+            padding: 0 8px;
+            border-radius: 999px;
+            background: #dc2626;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            border: 2px solid rgba(255,255,255,0.9);
+        }
+
+
         .materials { background: #2563eb; }
         .attendance { background: #16a34a; }
         .tasks { background: #7c3aed; }
@@ -217,7 +241,13 @@
         <div class="menu-grid">
             <a class="big-btn materials" href="{{ url_for('materials') }}">Materiál</a>
             <a class="big-btn attendance" href="{{ url_for('attendance') }}">Docházka</a>
-            <a class="big-btn tasks" href="{{ url_for('tasks') }}">Úkoly</a>
+            <a class="big-btn tasks task-btn" href="{{ url_for('tasks') }}">
+                Úkoly
+
+                {% if pending_tasks_count|default(0) > 0 %}
+                <span class="task-badge">{{ pending_tasks_count }}</span>
+                {% endif %}
+            </a>
             <a class="big-btn work-trips" href="{{ url_for('work_trips') }}">Prac. cesty</a>
 
             {% if current_user.role == 'admin' %}
