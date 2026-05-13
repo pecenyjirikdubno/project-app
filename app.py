@@ -2544,6 +2544,23 @@ def attendance_scan_qr():
         })
 
     if record.end_time is None:
+        # Ochrana proti vícenásobnému načtení stejného QR kódu v jedné chvíli.
+        # Některé telefony / prohlížeče umí po načtení QR vyvolat callback vícekrát,
+        # což by jinak zapsalo příchod a okamžitě i odchod.
+        duplicate_window_seconds = 60
+
+        if record.start_recorded_at:
+            start_recorded_at = record.start_recorded_at
+            if start_recorded_at.tzinfo is None:
+                start_recorded_at = start_recorded_at.replace(tzinfo=APP_TZ)
+
+            if current_dt - start_recorded_at < timedelta(seconds=duplicate_window_seconds):
+                return jsonify({
+                    "success": True,
+                    "action": "start_already",
+                    "message": "Příchod už byl zapsán. Odchod bude možné načíst až za chvíli.",
+                })
+
         record.end_time = current_tm
         record.end_recorded_at = current_dt
         record.updated_at = current_dt
