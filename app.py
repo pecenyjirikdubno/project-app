@@ -1707,6 +1707,20 @@ def purchase_add_receipt(purchase_id):
     flash("Doklad byl uložen.", "success")
     return redirect(url_for("purchases"))
 
+@app.route("/purchases/delete/<int:purchase_id>", methods=["POST"])
+@login_required
+def delete_purchase(purchase_id):
+
+    if not admin_required():
+        return redirect(url_for("purchases"))
+
+    purchase = PurchaseRequest.query.get_or_404(purchase_id)
+
+    db.session.delete(purchase)
+    db.session.commit()
+
+    flash("Požadavek byl smazán.", "success")
+    return redirect(url_for("purchases"))
 
 @app.route("/work-trips")
 @login_required
