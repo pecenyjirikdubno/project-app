@@ -250,7 +250,11 @@
                 {% endif %}
             </a>
             <a class="big-btn work-trips" href="{{ url_for('work_trips') }}">Prac. cesty</a>
-            <a class="big-btn purchases" href="{{ url_for('purchases') }}">Nákupy</a>
+            <a class="big-btn purchases" href="{{ url_for('purchases') }}">Nákupy
+{% if purchase_badge_count|default(0) > 0 %}
+<span class="task-badge">{{ purchase_badge_count }}</span>
+{% endif %}
+</a>
 
             {% if current_user.role == 'admin' %}
             <a class="big-btn projects" href="{{ url_for('projects') }}">Projekty</a>
