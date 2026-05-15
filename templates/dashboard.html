@@ -98,6 +98,7 @@
         .tasks { background: #7c3aed; }
         .projects { background: #0f766e; }
         .work-trips { background: #ea580c; }
+        .purchases { background: #dc2626; }
 
         .secondary-actions {
             display: grid;
@@ -249,6 +250,7 @@
                 {% endif %}
             </a>
             <a class="big-btn work-trips" href="{{ url_for('work_trips') }}">Prac. cesty</a>
+            <a class="big-btn purchases" href="{{ url_for('purchases') }}">Nákupy</a>
 
             {% if current_user.role == 'admin' %}
             <a class="big-btn projects" href="{{ url_for('projects') }}">Projekty</a>
