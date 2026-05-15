@@ -331,7 +331,38 @@ class ProjectWorkLog(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
 
 
+
+class PurchaseRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    job_id = db.Column(db.Integer, db.ForeignKey("job.id"), nullable=True)
+
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+
+    estimated_price = db.Column(db.Float, nullable=True)
+
+    status = db.Column(db.String(50), nullable=False, default="pending")
+
+    admin_note = db.Column(db.Text, nullable=True)
+
+    requested_advance = db.Column(db.Float, nullable=True)
+    approved_advance = db.Column(db.Float, nullable=True)
+
+    supplier_name = db.Column(db.String(200), nullable=True)
+    supplier_ico = db.Column(db.String(50), nullable=True)
+    receipt_number = db.Column(db.String(100), nullable=True)
+    receipt_date = db.Column(db.Date, nullable=True)
+
+    actual_amount = db.Column(db.Float, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: now_local(), nullable=False)
+
+
 class WorkTrip(db.Model):
+
     id = db.Column(db.Integer, primary_key=True)
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -1522,6 +1553,159 @@ def delete_project(project_id):
 
     flash("Projekt byl smazán.", "success")
     return redirect(url_for("projects"))
+
+
+
+
+@app.route("/purchases")
+@login_required
+def purchases():
+    if not user_app_access_required():
+        return redirect(url_for("qr_display"))
+
+    if current_user.role == "admin":
+        purchases_data = PurchaseRequest.query.order_by(PurchaseRequest.id.desc()).all()
+    else:
+        purchases_data = PurchaseRequest.query.filter_by(
+            user_id=current_user.id
+        ).order_by(PurchaseRequest.id.desc()).all()
+
+    users = User.query.all()
+    user_map = {u.id: u.username for u in users}
+
+    jobs = Job.query.order_by(Job.name.asc()).all()
+
+    return render_template(
+        "purchases.html",
+        purchases=purchases_data,
+        user_map=user_map,
+        jobs=jobs,
+    )
+
+
+@app.route("/purchases/create", methods=["POST"])
+@login_required
+def create_purchase():
+    title = request.form.get("title", "").strip()
+
+    if not title:
+        flash("Vyplň název požadavku.", "error")
+        return redirect(url_for("purchases"))
+
+    estimated_price = request.form.get("estimated_price", "").strip()
+
+    try:
+        estimated_price = float(estimated_price.replace(",", ".")) if estimated_price else None
+    except:
+        estimated_price = None
+
+    purchase = PurchaseRequest(
+        user_id=current_user.id,
+        job_id=request.form.get("job_id") or None,
+        title=title,
+        description=request.form.get("description", "").strip(),
+        estimated_price=estimated_price,
+        status="pending",
+        created_at=now_local(),
+        updated_at=now_local(),
+    )
+
+    db.session.add(purchase)
+    db.session.commit()
+
+    flash("Požadavek na nákup byl vytvořen.", "success")
+    return redirect(url_for("purchases"))
+
+
+@app.route("/purchases/admin/<int:purchase_id>", methods=["POST"])
+@login_required
+def purchase_admin_update(purchase_id):
+
+    if not admin_required():
+        return redirect(url_for("purchases"))
+
+    purchase = PurchaseRequest.query.get_or_404(purchase_id)
+
+    action = request.form.get("action")
+
+    if action == "approve":
+        purchase.status = "approved"
+
+    elif action == "reject":
+        purchase.status = "rejected"
+
+    purchase.admin_note = request.form.get("admin_note", "").strip()
+
+    approved_advance = request.form.get("approved_advance", "").strip()
+
+    try:
+        purchase.approved_advance = float(approved_advance.replace(",", ".")) if approved_advance else None
+    except:
+        pass
+
+    purchase.updated_at = now_local()
+
+    db.session.commit()
+
+    flash("Požadavek upraven.", "success")
+    return redirect(url_for("purchases"))
+
+
+@app.route("/purchases/request-advance/<int:purchase_id>", methods=["POST"])
+@login_required
+def purchase_request_advance(purchase_id):
+
+    purchase = PurchaseRequest.query.get_or_404(purchase_id)
+
+    if purchase.user_id != current_user.id and current_user.role != "admin":
+        return redirect(url_for("purchases"))
+
+    requested_advance = request.form.get("requested_advance", "").strip()
+
+    try:
+        purchase.requested_advance = float(requested_advance.replace(",", "."))
+    except:
+        flash("Neplatná částka zálohy.", "error")
+        return redirect(url_for("purchases"))
+
+    purchase.updated_at = now_local()
+
+    db.session.commit()
+
+    flash("Požadavek na zálohu uložen.", "success")
+    return redirect(url_for("purchases"))
+
+
+@app.route("/purchases/add-receipt/<int:purchase_id>", methods=["POST"])
+@login_required
+def purchase_add_receipt(purchase_id):
+
+    purchase = PurchaseRequest.query.get_or_404(purchase_id)
+
+    if purchase.user_id != current_user.id and current_user.role != "admin":
+        return redirect(url_for("purchases"))
+
+    purchase.supplier_name = request.form.get("supplier_name", "").strip()
+    purchase.supplier_ico = request.form.get("supplier_ico", "").strip()
+    purchase.receipt_number = request.form.get("receipt_number", "").strip()
+    purchase.receipt_date = parse_date_yyyy_mm_dd(
+        request.form.get("receipt_date", "").strip()
+    )
+
+    actual_amount = request.form.get("actual_amount", "").strip()
+
+    try:
+        purchase.actual_amount = float(actual_amount.replace(",", "."))
+    except:
+        purchase.actual_amount = None
+
+    purchase.status = "completed"
+    purchase.updated_at = now_local()
+
+    db.session.commit()
+
+    flash("Doklad byl uložen.", "success")
+    return redirect(url_for("purchases"))
 
 
 @app.route("/work-trips")
