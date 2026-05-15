@@ -1,0 +1,191 @@
+
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Nákupy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+    font-family:Arial,sans-serif;
+    background:#f4f6f8;
+    margin:0;
+    padding:16px;
+}
+.page{
+    max-width:1100px;
+    margin:0 auto;
+}
+.card{
+    background:white;
+    border-radius:16px;
+    padding:18px;
+    margin-bottom:18px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.08);
+}
+input,textarea,select{
+    width:100%;
+    padding:10px;
+    border-radius:10px;
+    border:1px solid #cbd5e1;
+    margin-bottom:10px;
+    box-sizing:border-box;
+}
+.btn{
+    border:none;
+    padding:12px;
+    border-radius:10px;
+    font-weight:bold;
+    cursor:pointer;
+    width:100%;
+    margin-top:8px;
+}
+.primary{background:#2563eb;color:white;}
+.success{background:#16a34a;color:white;}
+.danger{background:#dc2626;color:white;}
+.secondary{background:#64748b;color:white;}
+.badge{
+    display:inline-block;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:bold;
+}
+.pending{background:#fef3c7;color:#92400e;}
+.approved{background:#dcfce7;color:#166534;}
+.rejected{background:#fee2e2;color:#991b1b;}
+.completed{background:#dbeafe;color:#1d4ed8;}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<a class="btn secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+
+<div class="card">
+<h2>Nový požadavek na nákup</h2>
+
+<form method="POST" action="{{ url_for('create_purchase') }}">
+
+<input type="text" name="title" placeholder="Název požadavku" required>
+
+<textarea name="description" placeholder="Popis"></textarea>
+
+<input type="number" step="0.01" name="estimated_price" placeholder="Předpokládaná cena">
+
+<select name="job_id">
+<option value="">Bez zakázky</option>
+
+{% for job in jobs %}
+<option value="{{ job.id }}">{{ job.name }}</option>
+{% endfor %}
+
+</select>
+
+<button class="btn primary" type="submit">
+Vytvořit požadavek
+</button>
+
+</form>
+</div>
+
+{% for item in purchases %}
+
+<div class="card">
+
+<h3>{{ item.title }}</h3>
+
+<p>{{ item.description }}</p>
+
+<p>
+<strong>Uživatel:</strong>
+{{ user_map.get(item.user_id, '') }}
+</p>
+
+<p>
+<strong>Stav:</strong>
+
+<span class="badge {{ item.status }}">
+{{ item.status }}
+</span>
+</p>
+
+<p><strong>Předpokládaná cena:</strong> {{ item.estimated_price or '-' }}</p>
+
+<p><strong>Požadovaná záloha:</strong> {{ item.requested_advance or '-' }}</p>
+
+<p><strong>Schválená záloha:</strong> {{ item.approved_advance or '-' }}</p>
+
+{% if item.approved_advance and item.actual_amount %}
+<p>
+<strong>Rozdíl:</strong>
+{{ round(item.approved_advance - item.actual_amount, 2) }}
+</p>
+{% endif %}
+
+{% if current_user.role == 'admin' %}
+
+<form method="POST" action="{{ url_for('purchase_admin_update', purchase_id=item.id) }}">
+
+<textarea name="admin_note" placeholder="Poznámka admina">{{ item.admin_note or '' }}</textarea>
+
+<input type="number" step="0.01" name="approved_advance" value="{{ item.approved_advance or '' }}" placeholder="Schválená záloha">
+
+<button class="btn success" type="submit" name="action" value="approve">
+Schválit
+</button>
+
+<button class="btn danger" type="submit" name="action" value="reject">
+Zamítnout
+</button>
+
+</form>
+
+{% endif %}
+
+{% if item.status == 'approved' %}
+
+<form method="POST" action="{{ url_for('purchase_request_advance', purchase_id=item.id) }}">
+
+<input type="number"
+       step="0.01"
+       name="requested_advance"
+       placeholder="Požadovaná záloha"
+       value="{{ item.requested_advance or '' }}">
+
+<button class="btn primary" type="submit">
+Požádat o zálohu
+</button>
+
+</form>
+
+<form method="POST" action="{{ url_for('purchase_add_receipt', purchase_id=item.id) }}">
+
+<input type="text" name="supplier_name" placeholder="Dodavatel">
+
+<input type="text" name="supplier_ico" placeholder="IČO dodavatele">
+
+<input type="text" name="receipt_number" placeholder="Číslo dokladu">
+
+<input type="date" name="receipt_date">
+
+<input type="number" step="0.01" name="actual_amount" placeholder="Skutečná částka">
+
+<button class="btn success" type="submit">
+Uložit doklad
+</button>
+
+</form>
+
+{% endif %}
+
+</div>
+
+{% endfor %}
+
+</div>
+
+</body>
+</html>
