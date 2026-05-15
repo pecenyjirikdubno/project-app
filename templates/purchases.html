@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="cs">
 <head>
@@ -41,10 +40,22 @@ input,textarea,select{
     width:100%;
     margin-top:8px;
 }
-.primary{background:#2563eb;color:white;}
-.success{background:#16a34a;color:white;}
-.danger{background:#dc2626;color:white;}
-.secondary{background:#64748b;color:white;}
+.primary{
+    background:#2563eb;
+    color:white;
+}
+.success{
+    background:#16a34a;
+    color:white;
+}
+.danger{
+    background:#dc2626;
+    color:white;
+}
+.secondary{
+    background:#64748b;
+    color:white;
+}
 .badge{
     display:inline-block;
     padding:6px 10px;
@@ -52,43 +63,95 @@ input,textarea,select{
     font-size:12px;
     font-weight:bold;
 }
-.pending{background:#fef3c7;color:#92400e;}
-.approved{background:#dcfce7;color:#166534;}
-.rejected{background:#fee2e2;color:#991b1b;}
-.completed{background:#dbeafe;color:#1d4ed8;}
+.pending{
+    background:#fef3c7;
+    color:#92400e;
+}
+.approved{
+    background:#dcfce7;
+    color:#166534;
+}
+.rejected{
+    background:#fee2e2;
+    color:#991b1b;
+}
+.completed{
+    background:#dbeafe;
+    color:#1d4ed8;
+}
+.topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:16px;
+}
+.badge-notification{
+    background:#dc2626;
+    color:white;
+    border-radius:999px;
+    padding:4px 10px;
+    font-size:12px;
+    font-weight:bold;
+}
 </style>
 </head>
 <body>
 
 <div class="page">
 
-<a class="btn secondary" href="{{ url_for('dashboard') }}">Hlavní menu</a>
+<div class="topbar">
+    <a class="btn secondary" style="max-width:220px;" href="{{ url_for('dashboard') }}">
+        Hlavní menu
+    </a>
+
+    {% if current_user.role == 'admin' %}
+        {% set pending_count = purchases | selectattr('status', 'equalto', 'pending') | list | length %}
+
+        {% if pending_count > 0 %}
+            <div class="badge-notification">
+                Nové požadavky: {{ pending_count }}
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
 
 <div class="card">
+
 <h2>Nový požadavek na nákup</h2>
 
 <form method="POST" action="{{ url_for('create_purchase') }}">
 
-<input type="text" name="title" placeholder="Název požadavku" required>
+<input type="text"
+       name="title"
+       placeholder="Název požadavku"
+       required>
 
-<textarea name="description" placeholder="Popis"></textarea>
+<textarea name="description"
+          placeholder="Popis"></textarea>
 
-<input type="number" step="0.01" name="estimated_price" placeholder="Předpokládaná cena">
+<input type="number"
+       step="0.01"
+       name="estimated_price"
+       placeholder="Předpokládaná cena">
 
 <select name="job_id">
+
 <option value="">Bez zakázky</option>
 
 {% for job in jobs %}
-<option value="{{ job.id }}">{{ job.name }}</option>
+<option value="{{ job.id }}">
+    {{ job.name }}
+</option>
 {% endfor %}
 
 </select>
 
 <button class="btn primary" type="submit">
-Vytvořit požadavek
+    Vytvořit požadavek
 </button>
 
 </form>
+
 </div>
 
 {% for item in purchases %}
@@ -108,37 +171,111 @@ Vytvořit požadavek
 <strong>Stav:</strong>
 
 <span class="badge {{ item.status }}">
-{{ item.status }}
+    {{ item.status }}
 </span>
 </p>
 
-<p><strong>Předpokládaná cena:</strong> {{ item.estimated_price or '-' }}</p>
+<p>
+<strong>Předpokládaná cena:</strong>
+{{ item.estimated_price or '-' }}
+</p>
 
-<p><strong>Požadovaná záloha:</strong> {{ item.requested_advance or '-' }}</p>
+<p>
+<strong>Požadovaná záloha:</strong>
+{{ item.requested_advance or '-' }}
+</p>
 
-<p><strong>Schválená záloha:</strong> {{ item.approved_advance or '-' }}</p>
+<p>
+<strong>Schválená záloha:</strong>
+{{ item.approved_advance or '-' }}
+</p>
+
+{% if item.actual_amount %}
+<p>
+<strong>Skutečná částka:</strong>
+{{ item.actual_amount }}
+</p>
+{% endif %}
 
 {% if item.approved_advance and item.actual_amount %}
+
 <p>
 <strong>Rozdíl:</strong>
-{{ round(item.approved_advance - item.actual_amount, 2) }}
+
+{% set diff = round(item.approved_advance - item.actual_amount, 2) %}
+
+{% if diff > 0 %}
+    User vrací {{ diff }}
+{% elif diff < 0 %}
+    Doplatek userovi {{ diff | abs }}
+{% else %}
+    Vyrovnáno
+{% endif %}
+
+</p>
+
+{% endif %}
+
+{% if item.supplier_name %}
+<p>
+<strong>Dodavatel:</strong>
+{{ item.supplier_name }}
+</p>
+{% endif %}
+
+{% if item.supplier_ico %}
+<p>
+<strong>IČO:</strong>
+{{ item.supplier_ico }}
+</p>
+{% endif %}
+
+{% if item.receipt_number %}
+<p>
+<strong>Číslo dokladu:</strong>
+{{ item.receipt_number }}
+</p>
+{% endif %}
+
+{% if item.receipt_date %}
+<p>
+<strong>Datum dokladu:</strong>
+{{ item.receipt_date }}
 </p>
 {% endif %}
 
 {% if current_user.role == 'admin' %}
 
-<form method="POST" action="{{ url_for('purchase_admin_update', purchase_id=item.id) }}">
+<hr>
 
-<textarea name="admin_note" placeholder="Poznámka admina">{{ item.admin_note or '' }}</textarea>
+<form method="POST"
+      action="{{ url_for('purchase_admin_update', purchase_id=item.id) }}">
 
-<input type="number" step="0.01" name="approved_advance" value="{{ item.approved_advance or '' }}" placeholder="Schválená záloha">
+<textarea name="admin_note"
+          placeholder="Poznámka admina">{{ item.admin_note or '' }}</textarea>
 
-<button class="btn success" type="submit" name="action" value="approve">
-Schválit
+<input type="number"
+       step="0.01"
+       name="approved_advance"
+       value="{{ item.approved_advance or '' }}"
+       placeholder="Schválená záloha">
+
+<button class="btn success"
+        type="submit"
+        name="action"
+        value="approve">
+
+    Schválit
+
 </button>
 
-<button class="btn danger" type="submit" name="action" value="reject">
-Zamítnout
+<button class="btn danger"
+        type="submit"
+        name="action"
+        value="reject">
+
+    Zamítnout
+
 </button>
 
 </form>
@@ -147,7 +284,10 @@ Zamítnout
 
 {% if item.status == 'approved' %}
 
-<form method="POST" action="{{ url_for('purchase_request_advance', purchase_id=item.id) }}">
+<hr>
+
+<form method="POST"
+      action="{{ url_for('purchase_request_advance', purchase_id=item.id) }}">
 
 <input type="number"
        step="0.01"
@@ -156,25 +296,52 @@ Zamítnout
        value="{{ item.requested_advance or '' }}">
 
 <button class="btn primary" type="submit">
-Požádat o zálohu
+    Požádat o zálohu
 </button>
 
 </form>
 
-<form method="POST" action="{{ url_for('purchase_add_receipt', purchase_id=item.id) }}">
+<form method="POST"
+      action="{{ url_for('purchase_add_receipt', purchase_id=item.id) }}">
 
-<input type="text" name="supplier_name" placeholder="Dodavatel">
+<input type="text"
+       name="supplier_name"
+       placeholder="Dodavatel">
 
-<input type="text" name="supplier_ico" placeholder="IČO dodavatele">
+<input type="text"
+       name="supplier_ico"
+       placeholder="IČO dodavatele">
 
-<input type="text" name="receipt_number" placeholder="Číslo dokladu">
+<input type="text"
+       name="receipt_number"
+       placeholder="Číslo dokladu">
 
-<input type="date" name="receipt_date">
+<input type="date"
+       name="receipt_date">
 
-<input type="number" step="0.01" name="actual_amount" placeholder="Skutečná částka">
+<input type="number"
+       step="0.01"
+       name="actual_amount"
+       placeholder="Skutečná částka">
 
 <button class="btn success" type="submit">
-Uložit doklad
+    Uložit doklad
+</button>
+
+</form>
+
+{% endif %}
+
+{% if current_user.role == 'admin' and item.status == 'completed' %}
+
+<hr>
+
+<form method="POST"
+      action="{{ url_for('delete_purchase', purchase_id=item.id) }}"
+      onsubmit="return confirm('Opravdu smazat požadavek?');">
+
+<button class="btn danger" type="submit">
+    Smazat požadavek
 </button>
 
 </form>
