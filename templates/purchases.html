@@ -202,7 +202,7 @@ input,textarea,select{
 <p>
 <strong>Rozdíl:</strong>
 
-{% set diff = round(item.approved_advance - item.actual_amount, 2) %}
+{% set diff = (item.approved_advance - item.actual_amount) | round(2) %}
 
 {% if diff > 0 %}
     User vrací {{ diff }}
